@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Graphical Windstorm Outlook</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- ================= BULLETIN HEADER ================= -->
+<header class="bulletin-bar">
+  <div class="bulletin-id">
+    <span class="stamp">GWO</span>
+    <div class="bulletin-titles">
+      <h1 id="outlookTitle">Graphical Windstorm Outlook</h1>
+      <p id="outlookIssued" class="issued-line">Issued: &mdash;</p>
+    </div>
+  </div>
+
+  <div class="bulletin-controls">
+    <button id="archiveToggle" class="btn btn-ghost" title="Browse archive">
+      <svg viewBox="0 0 24 24"><path d="M4 4h16v4H4zM5 10h14l-1 10H6zM9 14h6"/></svg>
+      Archive
+    </button>
+
+    <div id="authArea" class="auth-area">
+      <button id="loginBtn" class="btn btn-ghost">Sign in</button>
+      <div id="userBadge" class="user-badge hidden">
+        <span id="userEmail"></span>
+        <button id="logoutBtn" class="btn btn-text">Sign out</button>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ================= MAIN LAYOUT ================= -->
+<main class="workspace">
+
+  <!-- Editor toolbar, only shown to authorised editors -->
+  <aside id="toolPanel" class="tool-panel hidden">
+    <div class="tool-group">
+      <p class="tool-group-label">Draw</p>
+      <button class="tool-btn" data-tool="polygon" title="Draw potential windstorm area">
+        <svg viewBox="0 0 24 24"><path d="M12 2l9 6-3 10H6L3 8z"/></svg>
+        <span>Zone</span>
+      </button>
+      <button class="tool-btn" data-tool="select" title="Select / edit">
+        <svg viewBox="0 0 24 24"><path d="M4 3l7 17 2-7 7-2z"/></svg>
+        <span>Select</span>
+      </button>
+    </div>
+
+    <div class="tool-group">
+      <p class="tool-group-label">Formation chance</p>
+      <button class="tool-btn marker-btn" data-tool="marker" data-tier="low" title="< 40%">
+        <span class="swatch swatch-low">&times;</span><span>&lt; 40%</span>
+      </button>
+      <button class="tool-btn marker-btn" data-tool="marker" data-tier="mid" title="40&ndash;60%">
+        <span class="swatch swatch-mid">&times;</span><span>40&ndash;60%</span>
+      </button>
+      <button class="tool-btn marker-btn" data-tool="marker" data-tier="high" title="&gt; 60%">
+        <span class="swatch swatch-high">&times;</span><span>&gt; 60%</span>
+      </button>
+    </div>
+
+    <div class="tool-group">
+      <p class="tool-group-label">Classification</p>
+      <button class="tool-btn marker-btn" data-tool="marker" data-tier="storm" title="Storm">
+        <span class="swatch swatch-storm">&#9748;</span><span>Storm</span>
+      </button>
+      <button class="tool-btn marker-btn" data-tool="marker" data-tier="major" title="Major Storm">
+        <span class="swatch swatch-major">&#9748;</span><span>Major storm</span>
+      </button>
+      <button class="tool-btn marker-btn" data-tool="marker" data-tier="remnant" title="Remnants">
+        <span class="swatch swatch-remnant">&otimes;</span><span>Remnants</span>
+      </button>
+    </div>
+
+    <div class="tool-group">
+      <p class="tool-group-label">Selected shape</p>
+      <label class="field-label" for="zoneNote">Note (optional)</label>
+      <input id="zoneNote" type="text" placeholder="e.g. slow-moving low" maxlength="80">
+      <button id="deleteSelected" class="btn btn-danger-outline" disabled>Delete selected</button>
+    </div>
+
+    <div class="tool-group">
+      <p class="tool-group-label">Bulletin</p>
+      <label class="field-label" for="titleInput">Title</label>
+      <input id="titleInput" type="text" value="Graphical Windstorm Outlook" maxlength="60">
+      <button id="publishBtn" class="btn btn-primary">Publish outlook</button>
+      <p id="publishStatus" class="status-line"></p>
+    </div>
+  </aside>
+
+  <!-- Chart stage -->
+  <section class="chart-stage">
+    <div id="mapRoot" class="map-root"></div>
+    <div id="coordReadout" class="coord-readout">&mdash;</div>
+  </section>
+
+</main>
+
+<!-- ================= LEGEND ================= -->
+<footer class="legend-bar">
+  <div class="legend-group">
+    <span class="legend-title">Current Disturbances &amp; Formation Chance</span>
+    <span class="legend-item"><span class="swatch swatch-low">&times;</span>&lt; 40%</span>
+    <span class="legend-item"><span class="swatch swatch-mid">&times;</span>40&ndash;60%</span>
+    <span class="legend-item"><span class="swatch swatch-high">&times;</span>&gt; 60%</span>
+  </div>
+  <div class="legend-group">
+    <span class="legend-title">Windstorm Classification</span>
+    <span class="legend-item"><span class="swatch swatch-storm">&#9748;</span>Storm</span>
+    <span class="legend-item"><span class="swatch swatch-major">&#9748;</span>Major Storm</span>
+    <span class="legend-item"><span class="swatch swatch-outline">&#9711;</span>Potential Windstorm</span>
+    <span class="legend-item"><span class="swatch swatch-remnant">&otimes;</span>Remnants</span>
+  </div>
+</footer>
+
+<!-- ================= ARCHIVE DRAWER ================= -->
+<div id="archiveDrawer" class="drawer">
+  <div class="drawer-head">
+    <h2>Archive</h2>
+    <button id="archiveClose" class="btn btn-text">Close</button>
+  </div>
+  <div id="archiveList" class="drawer-list">
+    <p class="muted">Loading&hellip;</p>
+  </div>
+</div>
+<div id="drawerScrim" class="drawer-scrim hidden"></div>
+
+<!-- ================= LOGIN MODAL ================= -->
+<div id="loginModal" class="modal-scrim hidden">
+  <div class="modal">
+    <h2>Editor sign in</h2>
+    <p class="muted">Only authorised editor accounts can publish outlooks.</p>
+    <label class="field-label" for="emailInput">Email</label>
+    <input id="emailInput" type="email" autocomplete="username">
+    <label class="field-label" for="passwordInput">Password</label>
+    <input id="passwordInput" type="password" autocomplete="current-password">
+    <p id="loginError" class="error-line hidden"></p>
+    <div class="modal-actions">
+      <button id="loginCancel" class="btn btn-ghost">Cancel</button>
+      <button id="loginSubmit" class="btn btn-primary">Sign in</button>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
