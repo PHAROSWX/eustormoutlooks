@@ -1,0 +1,23 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Published outlooks: anyone can read (public site), only allow-listed
+    // editors can create new ones. Outlooks are immutable once published —
+    // "editing" a past bulletin means publishing a new one.
+    match /outlooks/{outlookId} {
+      allow read: if true;
+      allow create: if request.auth != null
+                    && exists(/databases/$(database)/documents/editors/$(request.auth.uid));
+      allow update, delete: if false;
+    }
+
+    // Editor allowlist: one document per authorised UID, e.g. editors/{uid}.
+    // Nobody can read or write this from the client — manage it from the
+    // Firebase console (Firestore Database tab) only.
+    match /editors/{uid} {
+      allow read, write: if false;
+    }
+  }
+}
