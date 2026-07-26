@@ -1,7 +1,6 @@
 import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7/+esm";
 import { loadWorld } from "./geo-data.js";
-
-const SVG_NS = "http://www.w3.org/2000/svg";
+import { TIER_COLORS } from "./theme.js";
 
 export class WindstormMap {
   /**
@@ -44,14 +43,17 @@ export class WindstormMap {
       .attr("preserveAspectRatio", "xMidYMid slice");
 
     const defs = svg.append("defs");
-    const hatch = defs.append("pattern")
-      .attr("id", "hatchRed")
-      .attr("width", 8).attr("height", 8)
-      .attr("patternUnits", "userSpaceOnUse")
-      .attr("patternTransform", "rotate(45)");
-    hatch.append("rect").attr("width", 8).attr("height", 8).attr("fill", "rgba(212,59,59,0.10)");
-    hatch.append("line").attr("x1", 0).attr("y1", 0).attr("x2", 0).attr("y2", 8)
-      .attr("stroke", "rgba(212,59,59,0.55)").attr("stroke-width", 2);
+    Object.entries(TIER_COLORS).forEach(([tier, color]) => {
+      const hatch = defs.append("pattern")
+        .attr("id", `hatch-${tier}`)
+        .attr("width", 8).attr("height", 8)
+        .attr("patternUnits", "userSpaceOnUse")
+        .attr("patternTransform", "rotate(45)");
+      hatch.append("rect").attr("width", 8).attr("height", 8)
+        .attr("fill", color).attr("fill-opacity", 0.16);
+      hatch.append("line").attr("x1", 0).attr("y1", 0).attr("x2", 0).attr("y2", 8)
+        .attr("stroke", color).attr("stroke-opacity", 0.75).attr("stroke-width", 2.2);
+    });
 
     this.svg = svg;
     this.zoomLayer = svg.append("g").attr("class", "zoom-layer");
@@ -65,7 +67,9 @@ export class WindstormMap {
   }
 
   _drawGraticule() {
-    const grat = d3.geoGraticule().step([10, 10]);
+    // Extent constrained to the AOI: an unbounded graticule blows up near
+    // the poles under Mercator and was the main source of zoom/pan jank.
+    const grat = d3.geoGraticule().extent([[-95, 12], [55, 80]]).step([10, 10]);
     this.graticuleLayer.append("path")
       .datum(grat())
       .attr("class", "graticule-line")
@@ -75,12 +79,18 @@ export class WindstormMap {
   // ---------------------------------------------------------------- zoom/pan
   _bindZoom() {
     this.zoom = d3.zoom()
-      .scaleExtent([0.8, 10])
+      .scaleExtent([0.8, 12])
       .on("zoom", (event) => {
         this.zoomTransform = event.transform;
         this.zoomLayer.attr("transform", event.transform);
       });
     this.svg.call(this.zoom);
+    // dblclick is reserved for finishing a polygon draft, not map zoom.
+    this.svg.on("dblclick.zoom", null);
+  }
+
+  zoomBy(factor) {
+    this.svg.transition().duration(220).ease(d3.easeCubicOut).call(this.zoom.scaleBy, factor);
   }
 
   _bindResize() {
@@ -93,6 +103,9 @@ export class WindstormMap {
     const h = this.rootEl.clientHeight || 600;
     this.svg.attr("viewBox", `0 0 ${w} ${h}`);
     this.projection.translate([w / 2, h / 2]);
+    // Clip well outside the viewport (not tightly) so panning doesn't pop
+    // geometry in/out, but far enough to drop degenerate Mercator geometry.
+    this.projection.clipExtent([[-w, -h], [2 * w, 2 * h]]);
     if (this.landLayer) {
       this.landLayer.selectAll("path").attr("d", this.pathGen);
       this.borderLayer.selectAll("path").attr("d", this.pathGen);
@@ -124,5 +137,6 @@ export class WindstormMap {
   }
   enablePan() {
     this.svg.call(this.zoom);
+    this.svg.on("dblclick.zoom", null);
   }
 }
