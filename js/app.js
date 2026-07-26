@@ -242,6 +242,29 @@ function closeArchive() {
   drawerScrim.classList.add("hidden");
 }
 
-archiveToggle.addEventListener("click", openArchive);
-archiveClose.addEventListener("click", closeArchive);
-drawerScrim.addEventListener("click", closeArchive);
+// ---------------------------------------------------------------- nav tabs
+const navTabs = document.querySelectorAll(".nav-tab");
+function setActiveTab(name) {
+  navTabs.forEach((t) => t.classList.toggle("active", t.dataset.nav === name));
+}
+document.querySelector('.nav-tab[data-nav="outlook"]').addEventListener("click", () => {
+  closeArchive();
+  setActiveTab("outlook");
+});
+
+archiveToggle.addEventListener("click", () => {
+  setActiveTab("archive");
+  openArchive();
+});
+archiveClose.addEventListener("click", () => {
+  closeArchive();
+  setActiveTab("outlook");
+});
+drawerScrim.addEventListener("click", () => {
+  closeArchive();
+  setActiveTab("outlook");
+});
+
+// ---------------------------------------------------------------- zoom controls
+$("#zoomIn").addEventListener("click", () => map.zoomBy(1.5));
+$("#zoomOut").addEventListener("click", () => map.zoomBy(1 / 1.5));
