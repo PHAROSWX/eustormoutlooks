@@ -1,4 +1,5 @@
 import { renderOutlook } from "./renderer.js";
+import { DEFAULT_CONE_STEP_KM } from "./theme.js";
 
 const L = window.L;
 
@@ -21,12 +22,14 @@ export class OutlookEditor {
   constructor(map, hooks = {}) {
     this.map = map;
     this.hooks = hooks;
-    this.data = { shapes: [], markers: [] };
+    this.data = { shapes: [], markers: [], systems: [] };
     this.tool = null;
     this.value = null;
     this.draft = null;
     this.arrowDraft = null;
     this.selected = null; // { type: 'shape'|'marker', id }
+    this.activeSystemId = null;
+    this.coneStepKm = DEFAULT_CONE_STEP_KM;
     this.editable = false;
     this._bindMapEvents();
   }
@@ -39,17 +42,28 @@ export class OutlookEditor {
   setData(data) {
     this.data = {
       shapes: (data && data.shapes) ? data.shapes.map((s) => ({ ...s })) : [],
-      markers: (data && data.markers) ? data.markers.map((m) => ({ ...m })) : []
+      markers: (data && data.markers) ? data.markers.map((m) => ({ ...m })) : [],
+      systems: (data && data.systems) ? data.systems.map((s) => ({
+        ...s,
+        track: (s.track || []).map((p) => [...p]),
+        forecast: (s.forecast || []).map((p) => ({ ...p }))
+      })) : []
     };
     this.draft = null;
     this.selected = null;
+    this.activeSystemId = null;
     this.render();
   }
 
   getData() {
     return {
       shapes: this.data.shapes.map((s) => ({ ...s })),
-      markers: this.data.markers.map((m) => ({ ...m }))
+      markers: this.data.markers.map((m) => ({ ...m })),
+      systems: this.data.systems.map((s) => ({
+        ...s,
+        track: (s.track || []).map((p) => [...p]),
+        forecast: (s.forecast || []).map((p) => ({ ...p }))
+      }))
     };
   }
 
@@ -68,6 +82,64 @@ export class OutlookEditor {
     } else {
       this.map.enablePan();
     }
+  }
+
+  // ------------------------------------------------------------- systems
+  addSystem() {
+    const n = this.data.systems.length + 1;
+    const system = {
+      id: uid(),
+      label: `System ${n}`,
+      classification: "potential",
+      discussion: "",
+      track: [],
+      forecast: []
+    };
+    this.data.systems.push(system);
+    this.activeSystemId = system.id;
+    this._notifyChange();
+    return system;
+  }
+
+  setActiveSystem(id) {
+    this.activeSystemId = id;
+    this.render();
+  }
+
+  getActiveSystem() {
+    return this.data.systems.find((s) => s.id === this.activeSystemId) || null;
+  }
+
+  updateActiveSystemField(field, value) {
+    const system = this.getActiveSystem();
+    if (!system) return;
+    system[field] = value;
+    this._notifyChange();
+  }
+
+  deleteActiveSystem() {
+    if (!this.activeSystemId) return;
+    this.data.systems = this.data.systems.filter((s) => s.id !== this.activeSystemId);
+    this.activeSystemId = null;
+    this._notifyChange();
+  }
+
+  removeLastTrackPoint() {
+    const system = this.getActiveSystem();
+    if (!system || !system.track.length) return;
+    system.track.pop();
+    this._notifyChange();
+  }
+
+  removeLastForecastPoint() {
+    const system = this.getActiveSystem();
+    if (!system || !system.forecast.length) return;
+    system.forecast.pop();
+    this._notifyChange();
+  }
+
+  setConeStepKm(km) {
+    this.coneStepKm = km;
   }
 
   deleteSelected() {
@@ -100,6 +172,7 @@ export class OutlookEditor {
     renderOutlook(this.map, this.data, {
       editable: this.editable,
       selectedId: this.selected && this.selected.type === "shape" ? this.selected.id : null,
+      activeSystemId: this.activeSystemId,
       onShapeClick: (id) => {
         if (this.tool === "select") this._select("shape", id);
       },
@@ -113,6 +186,9 @@ export class OutlookEditor {
           marker.lat = lat;
           this._notifyChange();
         }
+      },
+      onSystemClick: (id) => {
+        if (this.hooks.onSystemClick) this.hooks.onSystemClick(id);
       }
     });
     this._renderVertexHandles();
@@ -138,6 +214,10 @@ export class OutlookEditor {
       this._placeMarker({ kind: "chance", tier: this.value, lon, lat });
     } else if (this.tool === "classification") {
       this._placeMarker({ kind: "classification", subtype: this.value, lon, lat });
+    } else if (this.tool === "track") {
+      this._addTrackPoint(lon, lat);
+    } else if (this.tool === "forecast") {
+      this._addForecastPoint(lon, lat);
     } else if (this.tool === "select") {
       this._deselect();
     }
@@ -214,6 +294,21 @@ export class OutlookEditor {
   _cancelDraft() {
     this.draft = null;
     this.map.draftLayer.clearLayers();
+  }
+
+  _addTrackPoint(lon, lat) {
+    const system = this.getActiveSystem();
+    if (!system) return;
+    system.track.push([lon, lat]);
+    this._notifyChange();
+  }
+
+  _addForecastPoint(lon, lat) {
+    const system = this.getActiveSystem();
+    if (!system) return;
+    const radiusKm = (system.forecast.length + 1) * this.coneStepKm;
+    system.forecast.push({ lon, lat, radiusKm });
+    this._notifyChange();
   }
 
   // ------------------------------------------------------------- point markers
