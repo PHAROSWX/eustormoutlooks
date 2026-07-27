@@ -14,10 +14,12 @@ service cloud.firestore {
     }
 
     // Editor allowlist: one document per authorised UID, e.g. editors/{uid}.
-    // Nobody can read or write this from the client — manage it from the
-    // Firebase console (Firestore Database tab) only.
+    // A signed-in user may check ONLY their own document (needed for the
+    // client-side "am I an editor" check) -- nobody can read anyone else's
+    // or list the collection. Manage documents from the Firebase console.
     match /editors/{uid} {
-      allow read, write: if false;
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if false;
     }
   }
 }
