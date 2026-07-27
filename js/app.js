@@ -2,7 +2,8 @@ import { mapDefaults } from "./config.js";
 import { WindstormMap } from "./map.js";
 import { OutlookEditor } from "./editor.js";
 import { watchAuth, login, logout } from "./auth.js";
-import { publishOutlook, subscribeLatest, listArchive, getOutlookById } from "./outlook-store.js";
+import { publishOutlook, subscribeLatest, listArchive, getOutlookById, COLLECTIONS } from "./outlook-store.js";
+import { exportOutlookPNG } from "./export.js";
 
 // ---------------------------------------------------------------- DOM refs
 const $ = (sel) => document.querySelector(sel);
@@ -38,11 +39,31 @@ const archiveClose = $("#archiveClose");
 const archiveList = $("#archiveList");
 const drawerScrim = $("#drawerScrim");
 
+const systemsList = $("#systemsList");
+const newSystemBtn = $("#newSystemBtn");
+const systemEditor = $("#systemEditor");
+const systemLabel = $("#systemLabel");
+const systemClassification = $("#systemClassification");
+const systemDiscussion = $("#systemDiscussion");
+const undoTrackPoint = $("#undoTrackPoint");
+const undoForecastPoint = $("#undoForecastPoint");
+const coneStepKm = $("#coneStepKm");
+const deleteSystemBtn = $("#deleteSystemBtn");
+
+const exportPngBtn = $("#exportPngBtn");
+
+// ---------------------------------------------------------------- mode (standard 2-day vs extended 7-day)
+const MODE_META = {
+  standard: { collection: COLLECTIONS.standard, defaultTitle: "Graphical Windstorm Outlook" },
+  extended: { collection: COLLECTIONS.extended, defaultTitle: "7-Day Extended Outlook" }
+};
+let currentMode = "standard";
+const latestByMode = { standard: null, extended: null };
+
 // ---------------------------------------------------------------- state
 let currentUser = null;
 let userIsEditor = false;
 let liveUnsub = null;
-let latestSnapshot = null;
 let activeArchiveId = null; // null == "live latest"
 
 // ---------------------------------------------------------------- map + editor
@@ -51,6 +72,7 @@ const map = new WindstormMap(mapRoot, mapDefaults);
 const editor = new OutlookEditor(map, {
   onChange: () => {
     publishStatus.textContent = "Unsaved changes";
+    refreshSystemsPanel();
   },
   onSelectionChange: (selected) => {
     if (selected && selected.type === "shape") {
@@ -71,10 +93,14 @@ const editor = new OutlookEditor(map, {
     const ns = lat >= 0 ? "N" : "S";
     const ew = lon >= 0 ? "E" : "W";
     coordReadout.textContent = `${Math.abs(lat).toFixed(2)}\u00B0${ns}  ${Math.abs(lon).toFixed(2)}\u00B0${ew}`;
+  },
+  onSystemClick: (id) => {
+    editor.setActiveSystem(id);
+    refreshSystemsPanel();
   }
 });
 
-map.init();
+map.init().catch((err) => console.error("Failed to load base map:", err));
 
 // ---------------------------------------------------------------- header helpers
 function formatIssued(ts) {
@@ -85,20 +111,23 @@ function formatIssued(ts) {
 }
 
 function applyOutlookToView(data, { editable } = { editable: false }) {
-  editor.setData(data || { shapes: [], markers: [] });
-  outlookTitleEl.textContent = (data && data.title) || "Graphical Windstorm Outlook";
+  editor.setData(data || { shapes: [], markers: [], systems: [] });
+  const fallbackTitle = MODE_META[currentMode].defaultTitle;
+  outlookTitleEl.textContent = (data && data.title) || fallbackTitle;
   outlookIssuedEl.textContent = formatIssued(data && data.issuedAt);
-  if (editable) titleInput.value = (data && data.title) || "Graphical Windstorm Outlook";
+  if (editable) titleInput.value = (data && data.title) || fallbackTitle;
   publishStatus.textContent = "";
+  refreshSystemsPanel();
 }
 
 // ---------------------------------------------------------------- live subscription (read-only visitors)
 function startLiveSubscription() {
   if (liveUnsub) return;
+  const mode = currentMode;
   liveUnsub = subscribeLatest((data) => {
-    latestSnapshot = data;
-    if (activeArchiveId === null) applyOutlookToView(data);
-  });
+    latestByMode[mode] = data;
+    if (mode === currentMode && activeArchiveId === null) applyOutlookToView(data);
+  }, MODE_META[mode].collection);
 }
 function stopLiveSubscription() {
   if (liveUnsub) {
@@ -108,6 +137,60 @@ function stopLiveSubscription() {
 }
 
 startLiveSubscription();
+
+// ---------------------------------------------------------------- systems panel
+function refreshSystemsPanel() {
+  const data = editor.getData();
+  const systems = data.systems || [];
+  systemsList.innerHTML = "";
+
+  if (!systems.length) {
+    const p = document.createElement("p");
+    p.className = "empty-hint";
+    p.textContent = "No tracked systems yet.";
+    systemsList.appendChild(p);
+  }
+
+  systems.forEach((s) => {
+    const pill = document.createElement("button");
+    pill.className = "system-pill" + (s.id === editor.activeSystemId ? " active" : "");
+    pill.innerHTML = `<img src="img/icons/${s.classification || "potential"}.png" alt="">
+      <span class="system-pill-label">${s.label || "Untitled system"}</span>`;
+    pill.addEventListener("click", () => {
+      editor.setActiveSystem(s.id);
+      refreshSystemsPanel();
+    });
+    systemsList.appendChild(pill);
+  });
+
+  const active = editor.getActiveSystem();
+  if (active && userIsEditor) {
+    systemEditor.classList.remove("hidden");
+    systemLabel.value = active.label || "";
+    systemClassification.value = active.classification || "potential";
+    systemDiscussion.value = active.discussion || "";
+    coneStepKm.value = editor.coneStepKm;
+  } else {
+    systemEditor.classList.add("hidden");
+  }
+}
+
+newSystemBtn.addEventListener("click", () => {
+  editor.addSystem();
+  refreshSystemsPanel();
+});
+systemLabel.addEventListener("input", () => editor.updateActiveSystemField("label", systemLabel.value));
+systemClassification.addEventListener("change", () => {
+  editor.updateActiveSystemField("classification", systemClassification.value);
+});
+systemDiscussion.addEventListener("input", () => editor.updateActiveSystemField("discussion", systemDiscussion.value));
+undoTrackPoint.addEventListener("click", () => editor.removeLastTrackPoint());
+undoForecastPoint.addEventListener("click", () => editor.removeLastForecastPoint());
+coneStepKm.addEventListener("input", () => editor.setConeStepKm(Number(coneStepKm.value) || 60));
+deleteSystemBtn.addEventListener("click", () => {
+  editor.deleteActiveSystem();
+  refreshSystemsPanel();
+});
 
 // ---------------------------------------------------------------- auth wiring
 watchAuth(({ user, isEditor }) => {
@@ -128,7 +211,7 @@ watchAuth(({ user, isEditor }) => {
     stopLiveSubscription();
     activeArchiveId = null;
     editor.setEditable(true);
-    applyOutlookToView(latestSnapshot, { editable: true });
+    applyOutlookToView(latestByMode[currentMode], { editable: true });
   } else {
     toolPanel.classList.add("hidden");
     editor.setTool(null);
@@ -175,7 +258,7 @@ publishBtn.addEventListener("click", async () => {
   publishStatus.textContent = "Publishing\u2026";
   try {
     const data = editor.getData();
-    await publishOutlook({ title: titleInput.value.trim(), ...data }, currentUser);
+    await publishOutlook({ title: titleInput.value.trim(), ...data }, currentUser, MODE_META[currentMode].collection);
     publishStatus.textContent = "Published.";
     outlookTitleEl.textContent = titleInput.value.trim();
     outlookIssuedEl.textContent = formatIssued(new Date());
@@ -193,11 +276,7 @@ async function openArchive() {
   drawerScrim.classList.remove("hidden");
   archiveList.innerHTML = '<p class="muted">Loading\u2026</p>';
   try {
-    const rows = await listArchive();
-    if (!rows.length) {
-      archiveList.innerHTML = '<p class="muted">No published outlooks yet.</p>';
-      return;
-    }
+    const rows = await listArchive(100, MODE_META[currentMode].collection);
     archiveList.innerHTML = "";
 
     const liveRow = document.createElement("div");
@@ -206,11 +285,19 @@ async function openArchive() {
     liveRow.innerHTML = '<div class="archive-row-title">Current (live)</div><div class="archive-row-meta">latest published outlook</div>';
     liveRow.addEventListener("click", () => {
       activeArchiveId = null;
-      applyOutlookToView(latestSnapshot, { editable: userIsEditor });
+      applyOutlookToView(latestByMode[currentMode], { editable: userIsEditor });
       document.querySelectorAll(".archive-row").forEach((r) => r.classList.remove("active"));
       liveRow.classList.add("active");
     });
     archiveList.appendChild(liveRow);
+
+    if (!rows.length) {
+      const p = document.createElement("p");
+      p.className = "muted";
+      p.textContent = "No published outlooks yet.";
+      archiveList.appendChild(p);
+      return;
+    }
 
     rows.forEach((row) => {
       const el = document.createElement("div");
@@ -225,7 +312,7 @@ async function openArchive() {
       el.appendChild(title);
       el.appendChild(meta);
       el.addEventListener("click", async () => {
-        const full = await getOutlookById(row.id);
+        const full = await getOutlookById(row.id, MODE_META[currentMode].collection);
         activeArchiveId = row.id;
         applyOutlookToView(full);
         document.querySelectorAll(".archive-row").forEach((r) => r.classList.remove("active"));
@@ -244,29 +331,71 @@ function closeArchive() {
   drawerScrim.classList.add("hidden");
 }
 
-// ---------------------------------------------------------------- nav tabs
+// ---------------------------------------------------------------- nav tabs / mode switching
 const navTabs = document.querySelectorAll(".nav-tab");
 function setActiveTab(name) {
   navTabs.forEach((t) => t.classList.toggle("active", t.dataset.nav === name));
 }
+
+function switchMode(mode) {
+  if (mode === currentMode) return;
+  currentMode = mode;
+  activeArchiveId = null;
+  closeArchive();
+
+  if (userIsEditor) {
+    stopLiveSubscription();
+    applyOutlookToView(latestByMode[currentMode], { editable: true });
+  } else {
+    stopLiveSubscription();
+    startLiveSubscription();
+    // Show whatever we already have cached (if any) immediately; the live
+    // subscription callback will refresh it a moment later regardless.
+    applyOutlookToView(latestByMode[currentMode], { editable: false });
+  }
+}
+
 document.querySelector('.nav-tab[data-nav="outlook"]').addEventListener("click", () => {
   closeArchive();
   setActiveTab("outlook");
+  switchMode("standard");
 });
-
+document.querySelector('.nav-tab[data-nav="extended"]').addEventListener("click", () => {
+  closeArchive();
+  setActiveTab("extended");
+  switchMode("extended");
+});
 archiveToggle.addEventListener("click", () => {
   setActiveTab("archive");
   openArchive();
 });
 archiveClose.addEventListener("click", () => {
   closeArchive();
-  setActiveTab("outlook");
+  setActiveTab(currentMode === "extended" ? "extended" : "outlook");
 });
 drawerScrim.addEventListener("click", () => {
   closeArchive();
-  setActiveTab("outlook");
+  setActiveTab(currentMode === "extended" ? "extended" : "outlook");
 });
 
 // ---------------------------------------------------------------- zoom controls
 $("#zoomIn").addEventListener("click", () => map.zoomBy(1.5));
 $("#zoomOut").addEventListener("click", () => map.zoomBy(1 / 1.5));
+
+// ---------------------------------------------------------------- export
+exportPngBtn.addEventListener("click", async () => {
+  exportPngBtn.disabled = true;
+  const originalText = exportPngBtn.textContent;
+  exportPngBtn.textContent = "Exporting\u2026";
+  try {
+    await exportOutlookPNG(map, editor.getData(), {
+      title: outlookTitleEl.textContent,
+      issuedText: outlookIssuedEl.textContent
+    });
+  } catch (err) {
+    console.error("PNG export failed:", err);
+  } finally {
+    exportPngBtn.disabled = false;
+    exportPngBtn.textContent = originalText;
+  }
+});
