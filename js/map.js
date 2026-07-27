@@ -3,8 +3,8 @@ import { TIER_COLORS } from "./theme.js";
 const L = window.L;
 const COUNTRIES_URL = "data/countries.geojson";
 
-const LAND_COLOR = "#e6e6e6";
-const LAND_BORDER = "#9aa0a3";
+export const LAND_COLOR = "#e6e6e6";
+export const LAND_BORDER = "#9aa0a3";
 
 export class WindstormMap {
   /**
@@ -42,6 +42,7 @@ export class WindstormMap {
     const res = await fetch(COUNTRIES_URL);
     if (!res.ok) throw new Error(`Failed to load countries.geojson: ${res.status}`);
     const geojson = await res.json();
+    this.landFeatures = geojson.features || [];
     L.geoJSON(geojson, {
       renderer: this.renderer,
       style: () => ({
