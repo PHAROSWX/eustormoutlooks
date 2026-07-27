@@ -15,9 +15,9 @@ export const firebaseConfig = {
   appId: "1:312726410387:web:dff7b7927d142900b22966"
 };
 
-// Map initial view: [longitude, latitude] center and a rough zoom scale.
+// Map initial view: [longitude, latitude] center and a Leaflet zoom level.
 // Defaults roughly frame the North Atlantic + Europe, matching the example bulletin.
 export const mapDefaults = {
   center: [-20, 48],
-  scaleFactor: 380
+  zoom: 5
 };
