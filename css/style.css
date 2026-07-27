@@ -20,10 +20,10 @@
   --tier-high:#e0080a;
   --danger:#e0080a;
 
-  --ocean:#3f7fb0;
-  --ocean-deep:#2f6790;
-  --land:#f2f3ef;
-  --land-line:#9aa7ad;
+  --ocean:#64a2ca;
+  --ocean-deep:#4f88ac;
+  --land:#e6e6e6;
+  --land-line:#9aa0a3;
   --graticule:rgba(255,255,255,0.22);
 
   --radius:4px;
@@ -198,6 +198,35 @@ input{font-family:inherit;}
   box-shadow:0 0 0 1px rgba(0,0,0,.35);
 }
 
+.btn-block{width:100%;justify-content:center;}
+
+.systems-list{display:flex;flex-direction:column;gap:5px;}
+.system-pill{
+  display:flex;align-items:center;gap:8px;
+  background:var(--navy-800);border:1px solid var(--line);
+  border-radius:var(--radius);padding:6px 9px;
+  font-size:12px;color:var(--paper);text-align:left;
+}
+.system-pill img{width:16px;height:16px;flex-shrink:0;}
+.system-pill.active{border-color:var(--amber);box-shadow:inset 0 0 0 1px var(--amber);}
+.system-pill .system-pill-label{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.empty-hint{font-size:11px;color:var(--paper-dim);font-style:italic;}
+
+.tool-panel select,
+.tool-panel textarea{
+  background:var(--navy-950);
+  border:1px solid var(--line);
+  color:var(--paper);
+  border-radius:var(--radius);
+  padding:7px 8px;
+  font-size:13px;
+  width:100%;
+  font-family:inherit;
+  resize:vertical;
+}
+
+.gwo-system-active img{filter:drop-shadow(0 0 0 2px var(--amber)) drop-shadow(0 0 4px rgba(224,163,61,.7));}
+
 .field-label{font-size:11px;color:var(--paper-dim);margin-top:4px;}
 .tool-panel input[type=text]{
   background:var(--navy-950);
@@ -222,6 +251,7 @@ input{font-family:inherit;}
   margin-bottom:14px;
 }
 .map-root{width:100%;height:100%;}
+.map-root .leaflet-container{background:var(--ocean);}
 .map-root.tool-active .leaflet-container{cursor:crosshair;}
 
 .zoom-controls{
@@ -299,6 +329,7 @@ input{font-family:inherit;}
 .legend-title{color:var(--paper-dim);font-weight:600;text-transform:uppercase;font-size:10px;letter-spacing:.08em;margin-right:2px;}
 .legend-item{display:flex;align-items:center;gap:6px;color:var(--paper-dim);}
 .legend-item img{width:18px;height:18px;object-fit:contain;}
+.legend-credit{margin-left:auto;align-self:center;font-size:10px;color:var(--paper-dim);opacity:.6;}
 
 /* ---------------- Drawer (archive) ---------------- */
 .drawer{
