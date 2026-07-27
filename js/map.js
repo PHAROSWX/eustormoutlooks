@@ -1,14 +1,10 @@
 import { TIER_COLORS } from "./theme.js";
 
 const L = window.L;
+const COUNTRIES_URL = "data/countries.geojson";
 
-// CARTO Voyager, no labels: real-world, high-resolution coastlines and
-// country borders baked into the tiles (no custom projection math needed,
-// and panning/zooming is Leaflet's own well-tested implementation).
-const TILE_URL = "https://{s}.basemaps.cartocdn.com/rastertiles/voyager_nolabels/{z}/{x}/{y}{r}.png";
-const TILE_ATTRIBUTION =
-  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors ' +
-  '&copy; <a href="https://carto.com/attributions">CARTO</a>';
+const LAND_COLOR = "#e6e6e6";
+const LAND_BORDER = "#9aa0a3";
 
 export class WindstormMap {
   /**
@@ -22,28 +18,40 @@ export class WindstormMap {
       center: [opts.center[1], opts.center[0]],
       zoom: opts.zoom || 5,
       minZoom: 3,
-      maxZoom: 12,
+      maxZoom: 10,
       zoomControl: false,
       doubleClickZoom: false, // dblclick is reserved for finishing a zone
-      worldCopyJump: false
+      worldCopyJump: false,
+      attributionControl: false
     });
-
-    L.tileLayer(TILE_URL, { attribution: TILE_ATTRIBUTION, maxZoom: 20 }).addTo(this.map);
 
     // Force the SVG renderer to exist immediately so we can inject shared
     // hatch-pattern <defs> that our zone polygons reference by url(#...).
     this.renderer = L.svg({ padding: 2 }).addTo(this.map);
     this._injectHatchDefs();
 
+    this.landLayer = L.layerGroup().addTo(this.map);
+    this.systemsLayer = L.layerGroup().addTo(this.map);
     this.shapesLayer = L.layerGroup().addTo(this.map);
     this.markersLayer = L.layerGroup().addTo(this.map);
     this.draftLayer = L.layerGroup().addTo(this.map);
     this.handlesLayer = L.layerGroup().addTo(this.map);
   }
 
-  // eslint-disable-next-line class-methods-use-this
   async init() {
-    // Tiles load themselves -- nothing async needed before first render.
+    const res = await fetch(COUNTRIES_URL);
+    if (!res.ok) throw new Error(`Failed to load countries.geojson: ${res.status}`);
+    const geojson = await res.json();
+    L.geoJSON(geojson, {
+      renderer: this.renderer,
+      style: () => ({
+        color: LAND_BORDER,
+        weight: 0.8,
+        fill: true,
+        fillColor: LAND_COLOR,
+        fillOpacity: 1
+      })
+    }).addTo(this.landLayer);
   }
 
   _injectHatchDefs() {
