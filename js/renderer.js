@@ -1,11 +1,8 @@
-import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7/+esm";
 import { TIER_COLORS, ICONS } from "./theme.js";
 
-const ICON_SIZE = {
-  chance: 20,
-  movement: 22,
-  classification: 30
-};
+const L = window.L;
+
+const ICON_SIZE = { chance: 20, movement: 24, classification: 30 };
 
 function iconKeyFor(marker) {
   if (marker.kind === "chance") return `x-${marker.tier}`;
@@ -14,47 +11,73 @@ function iconKeyFor(marker) {
   return null;
 }
 
-/** Renders shapes + markers into the map's shapesLayer/markersLayer. Non-interactive. */
-export function renderOutlook(map, data) {
-  const shapes = (data && data.shapes) || [];
-  const markers = (data && data.markers) || [];
+function buildDivIcon(marker) {
+  const size = ICON_SIZE[marker.kind] || 20;
+  const src = ICONS[iconKeyFor(marker)] || "";
+  const rotate = marker.kind === "movement" ? `transform:rotate(${marker.angle || 0}deg);` : "";
+  return L.divIcon({
+    className: "gwo-marker-icon",
+    html: `<img src="${src}" alt="" style="width:${size}px;height:${size}px;display:block;${rotate}">`,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2]
+  });
+}
 
-  const lineGen = d3.line()
-    .x((d) => map.project(d)[0])
-    .y((d) => map.project(d)[1])
-    .curve(d3.curveCatmullRomClosed.alpha(0.6));
+/**
+ * Renders shapes + markers as native Leaflet layers (so panning/zooming is
+ * Leaflet's own, not something we reposition by hand).
+ *
+ * @param {import('./map.js').WindstormMap} map
+ * @param {{shapes:Array, markers:Array}} data
+ * @param {{editable:boolean, selectedId:?string, onShapeClick:Function,
+ *          onMarkerClick:Function, onMarkerDrag:Function}} hooks
+ */
+export function renderOutlook(map, data, hooks = {}) {
+  map.shapesLayer.clearLayers();
+  map.markersLayer.clearLayers();
 
-  map.shapesLayer.selectAll("path.zone-shape")
-    .data(shapes, (d) => d.id)
-    .join("path")
-    .attr("class", "zone-shape")
-    .attr("fill", (d) => `url(#hatch-${d.tier || "high"})`)
-    .attr("stroke", (d) => TIER_COLORS[d.tier] || TIER_COLORS.high)
-    .attr("d", (d) => (d.points && d.points.length >= 3 ? lineGen(d.points) : null));
+  (data.shapes || []).forEach((shape) => {
+    if (!shape.points || shape.points.length < 3) return;
+    const latlngs = shape.points.map((p) => map.toLatLng(p));
+    const color = TIER_COLORS[shape.tier] || TIER_COLORS.high;
+    const isSelected = hooks.selectedId === shape.id;
 
-  const markerG = map.markersLayer.selectAll("g.marker")
-    .data(markers, (d) => d.id)
-    .join((enter) => {
-      const g = enter.append("g").attr("class", "marker");
-      g.append("image").attr("class", "marker-icon");
-      return g;
+    const layer = L.polygon(latlngs, {
+      renderer: map.renderer,
+      color,
+      weight: isSelected ? 2.6 : 1.8,
+      dashArray: isSelected ? "5 3" : null,
+      fill: true,
+      fillColor: `url(#hatch-${shape.tier || "high"})`,
+      fillOpacity: 1
     });
-
-  markerG.attr("transform", (d) => {
-    const [x, y] = map.project([d.lon, d.lat]);
-    const rotate = d.kind === "movement" ? ` rotate(${d.angle || 0})` : "";
-    return `translate(${x},${y})${rotate}`;
+    layer._gwoId = shape.id;
+    layer.on("click", (e) => {
+      L.DomEvent.stopPropagation(e);
+      if (hooks.onShapeClick) hooks.onShapeClick(shape.id);
+    });
+    layer.addTo(map.shapesLayer);
   });
 
-  markerG.select("image.marker-icon")
-    .attr("href", (d) => ICONS[iconKeyFor(d)] || "")
-    .attr("width", (d) => ICON_SIZE[d.kind] || 20)
-    .attr("height", (d) => ICON_SIZE[d.kind] || 20)
-    .attr("x", (d) => -(ICON_SIZE[d.kind] || 20) / 2)
-    .attr("y", (d) => -(ICON_SIZE[d.kind] || 20) / 2);
+  (data.markers || []).forEach((marker) => {
+    const m = L.marker(map.toLatLng([marker.lon, marker.lat]), {
+      icon: buildDivIcon(marker),
+      draggable: !!hooks.editable
+    });
+    m._gwoId = marker.id;
+    m.on("click", (e) => {
+      L.DomEvent.stopPropagation(e);
+      if (hooks.onMarkerClick) hooks.onMarkerClick(marker.id);
+    });
+    m.on("dragend", () => {
+      const ll = m.getLatLng();
+      if (hooks.onMarkerDrag) hooks.onMarkerDrag(marker.id, ll.lng, ll.lat);
+    });
+    m.addTo(map.markersLayer);
+  });
 }
 
 export function clearOutlook(map) {
-  map.shapesLayer.selectAll("*").remove();
-  map.markersLayer.selectAll("*").remove();
+  map.shapesLayer.clearLayers();
+  map.markersLayer.clearLayers();
 }
