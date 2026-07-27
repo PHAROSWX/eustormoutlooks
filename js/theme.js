@@ -23,8 +23,21 @@ export const ICONS = {
   "storm": "img/icons/storm.png",
   "major-storm": "img/icons/major-storm.png",
   "remnants": "img/icons/remnants.png",
-  "potential-outline": "img/icons/potential-outline.png"
+  "potential-outline": "img/icons/potential-outline.png",
+  "potential": "img/icons/potential-outline.png"
 };
+
+// Classification options available for a tracked system.
+export const SYSTEM_CLASSIFICATIONS = [
+  { value: "potential", label: "Potential windstorm" },
+  { value: "storm", label: "Storm" },
+  { value: "major-storm", label: "Major storm" },
+  { value: "remnants", label: "Remnants" }
+];
+
+export const TRACK_COLOR = "#2b2f33";
+export const CONE_COLOR = "#ffffff";
+export const DEFAULT_CONE_STEP_KM = 60;
 
 // Rough North Atlantic + Europe area of interest, used to trim world
 // topology to just what's relevant (better performance, no far-flung
