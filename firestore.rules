@@ -13,6 +13,14 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // 7-day extended outlook -- same public-read / editor-only-create rules.
+    match /extendedOutlooks/{outlookId} {
+      allow read: if true;
+      allow create: if request.auth != null
+                    && exists(/databases/$(database)/documents/editors/$(request.auth.uid));
+      allow update, delete: if false;
+    }
+
     // Editor allowlist: one document per authorised UID, e.g. editors/{uid}.
     // A signed-in user may check ONLY their own document (needed for the
     // client-side "am I an editor" check) -- nobody can read anyone else's
