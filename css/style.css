@@ -221,10 +221,8 @@ input{font-family:inherit;}
   overflow:hidden;
   margin-bottom:14px;
 }
-.map-root{width:100%;height:100%;cursor:grab;}
-.map-root.tool-active{cursor:crosshair;}
-.map-root:active{cursor:grabbing;}
-.map-root svg{display:block;width:100%;height:100%;background:var(--ocean);}
+.map-root{width:100%;height:100%;}
+.map-root.tool-active .leaflet-container{cursor:crosshair;}
 
 .zoom-controls{
   position:absolute;
@@ -235,6 +233,7 @@ input{font-family:inherit;}
   border-radius:6px;
   overflow:hidden;
   border:1px solid rgba(10,20,32,.35);
+  z-index:600;
 }
 .zoom-controls button{
   width:32px;height:32px;
@@ -251,8 +250,8 @@ input{font-family:inherit;}
 
 .coord-readout{
   position:absolute;
-  bottom:14px;
-  right:14px;
+  top:12px;
+  right:12px;
   font-family:var(--font-mono);
   font-size:11px;
   color:#eef4f8;
@@ -260,7 +259,31 @@ input{font-family:inherit;}
   padding:5px 9px;
   border-radius:var(--radius);
   pointer-events:none;
+  z-index:600;
 }
+
+/* Leaflet chrome, retuned for the dark UI */
+.leaflet-control-attribution{
+  background:rgba(10,20,32,.55) !important;
+  color:#c7d6e0 !important;
+  font-size:10px !important;
+}
+.leaflet-control-attribution a{color:#dfe9ef !important;}
+
+/* Point markers: plain wrapper around our own icon images */
+.gwo-marker-icon{background:none;border:none;}
+.gwo-marker-icon img{pointer-events:none;}
+
+/* Draggable vertex handles for a selected zone */
+.gwo-vertex-handle{
+  width:12px;height:12px;
+  background:var(--amber);
+  border:1.5px solid #04202c;
+  border-radius:50%;
+  box-shadow:0 0 0 1px rgba(0,0,0,.25);
+  cursor:grab;
+}
+.gwo-vertex-handle:active{cursor:grabbing;}
 
 /* ---------------- Legend ---------------- */
 .legend-bar{
@@ -326,17 +349,6 @@ input{font-family:inherit;}
 }
 .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:8px;}
 .error-line{color:var(--danger);font-size:12px;margin:2px 0 4px;}
-
-/* ---------------- Map elements (SVG classes referenced from map.js/renderer.js) ---------------- */
-.graticule-line{stroke:var(--graticule);stroke-width:.6;fill:none;}
-.coastline{stroke:var(--land-line);stroke-width:.9;fill:none;}
-.land-fill{fill:var(--land);}
-.zone-shape{stroke-width:1.8;}
-.zone-shape.editing{stroke-dasharray:5 3;}
-.zone-vertex{fill:var(--amber);stroke:#04202c;stroke-width:1;cursor:pointer;}
-.zone-draft-line{stroke:var(--amber);stroke-width:1.4;stroke-dasharray:4 3;fill:none;}
-.arrow-draft-line{stroke:var(--amber);stroke-width:2;}
-.marker{cursor:pointer;}
 
 /* ---------------- Responsive ---------------- */
 @media (max-width: 760px){
