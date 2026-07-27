@@ -30,11 +30,13 @@
 <!-- ================= NAV TABS ================= -->
 <nav class="nav-tabs">
   <button class="nav-tab active" data-nav="outlook">Outlook</button>
+  <button class="nav-tab" data-nav="extended">Extended (7-day)</button>
   <button class="nav-tab" id="archiveToggle" data-nav="archive">Archive</button>
   <span class="nav-meta">
     <span id="outlookTitle" class="outlook-title-inline">Graphical Windstorm Outlook</span>
     <span class="meta-sep">&middot;</span>
     <span id="outlookIssued" class="issued-line">&mdash;</span>
+    <button id="exportPngBtn" class="btn btn-text" title="Download current view as PNG">Export PNG</button>
   </span>
 </nav>
 
@@ -94,7 +96,43 @@
     </div>
 
     <div class="tool-group">
-      <p class="tool-group-label">Classification</p>
+      <p class="tool-group-label">Tracked systems</p>
+      <div id="systemsList" class="systems-list"></div>
+      <button id="newSystemBtn" class="btn btn-ghost btn-block">+ New system</button>
+    </div>
+
+    <div id="systemEditor" class="tool-group hidden">
+      <p class="tool-group-label">Active system</p>
+      <label class="field-label" for="systemLabel">Label</label>
+      <input id="systemLabel" type="text" maxlength="40">
+      <label class="field-label" for="systemClassification">Classification</label>
+      <select id="systemClassification">
+        <option value="potential">Potential windstorm</option>
+        <option value="storm">Storm</option>
+        <option value="major-storm">Major storm</option>
+        <option value="remnants">Remnants</option>
+      </select>
+      <label class="field-label" for="systemDiscussion">Discussion</label>
+      <textarea id="systemDiscussion" rows="4" maxlength="1200" placeholder="Forecast reasoning for this system&hellip;"></textarea>
+
+      <button class="tool-btn" data-tool="track" title="Click the map to add a past-position fix">
+        <span class="swatch-dot" style="background:#2b2f33"></span><span>Add track point</span>
+      </button>
+      <button id="undoTrackPoint" class="btn btn-text btn-block">Remove last track point</button>
+
+      <button class="tool-btn" data-tool="forecast" title="Click the map to add a forecast position">
+        <span class="swatch-dot" style="background:#ffffff;border:1px solid #999"></span><span>Add forecast point</span>
+      </button>
+      <button id="undoForecastPoint" class="btn btn-text btn-block">Remove last forecast point</button>
+
+      <label class="field-label" for="coneStepKm">Cone growth per point (km)</label>
+      <input id="coneStepKm" type="number" min="10" step="10" value="60">
+
+      <button id="deleteSystemBtn" class="btn btn-danger-outline btn-block">Delete system</button>
+    </div>
+
+    <div class="tool-group">
+      <p class="tool-group-label">Classification marker</p>
       <button class="tool-btn icon-btn" data-tool="classification" data-tier="storm">
         <img src="img/icons/storm.png" alt=""><span>Storm</span>
       </button>
@@ -155,6 +193,7 @@
     <span class="legend-item"><span class="swatch-dot" style="background:#ffa500"></span>40&ndash;60%</span>
     <span class="legend-item"><span class="swatch-dot" style="background:#e0080a"></span>&gt; 60%</span>
   </div>
+  <span class="legend-credit">Map data: Natural Earth</span>
 </footer>
 
 <!-- ================= ARCHIVE DRAWER ================= -->
