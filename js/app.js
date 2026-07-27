@@ -127,10 +127,12 @@ watchAuth(({ user, isEditor }) => {
     toolPanel.classList.remove("hidden");
     stopLiveSubscription();
     activeArchiveId = null;
+    editor.setEditable(true);
     applyOutlookToView(latestSnapshot, { editable: true });
   } else {
     toolPanel.classList.add("hidden");
     editor.setTool(null);
+    editor.setEditable(false);
     startLiveSubscription();
   }
 });
