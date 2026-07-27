@@ -1,4 +1,5 @@
-import { TIER_COLORS, ICONS } from "./theme.js";
+import { TIER_COLORS, ICONS, TRACK_COLOR, CONE_COLOR } from "./theme.js";
+import { buildConePolygon } from "./cone.js";
 
 const L = window.L;
 
@@ -33,8 +34,72 @@ function buildDivIcon(marker) {
  *          onMarkerClick:Function, onMarkerDrag:Function}} hooks
  */
 export function renderOutlook(map, data, hooks = {}) {
+  map.systemsLayer.clearLayers();
   map.shapesLayer.clearLayers();
   map.markersLayer.clearLayers();
+
+  (data.systems || []).forEach((system) => {
+    const isActive = hooks.activeSystemId === system.id;
+
+    // Forecast cone -- envelope of growing-radius circles.
+    if (system.forecast && system.forecast.length) {
+      const conePts = buildConePolygon(system.forecast);
+      if (conePts.length >= 3) {
+        L.polygon(conePts.map(([lon, lat]) => map.toLatLng([lon, lat])), {
+          renderer: map.renderer,
+          color: CONE_COLOR,
+          weight: 1.4,
+          dashArray: "5 4",
+          fill: true,
+          fillColor: CONE_COLOR,
+          fillOpacity: 0.28
+        }).addTo(map.systemsLayer);
+      }
+      // forecast track line + numbered points
+      const fLatLngs = system.forecast.map((p) => map.toLatLng([p.lon, p.lat]));
+      L.polyline(fLatLngs, { renderer: map.renderer, color: "#ffffff", weight: 1.4 }).addTo(map.systemsLayer);
+      system.forecast.forEach((p, i) => {
+        L.circleMarker(map.toLatLng([p.lon, p.lat]), {
+          renderer: map.renderer, radius: 4, color: "#333", weight: 1,
+          fillColor: "#ffffff", fillOpacity: 1
+        }).bindTooltip(`+${i + 1}`, { permanent: false, direction: "top" }).addTo(map.systemsLayer);
+      });
+    }
+
+    // Best track -- past fixes, dark dashed line with small dots.
+    if (system.track && system.track.length) {
+      const tLatLngs = system.track.map((p) => map.toLatLng(p));
+      L.polyline(tLatLngs, { renderer: map.renderer, color: TRACK_COLOR, weight: 1.8, dashArray: "2 3" })
+        .addTo(map.systemsLayer);
+      system.track.forEach((p) => {
+        L.circleMarker(map.toLatLng(p), {
+          renderer: map.renderer, radius: 3.2, color: TRACK_COLOR, weight: 1,
+          fillColor: TRACK_COLOR, fillOpacity: 1
+        }).addTo(map.systemsLayer);
+      });
+    }
+
+    // Current position / classification icon, at the last track point (or first forecast point).
+    const anchor = (system.track && system.track.length)
+      ? system.track[system.track.length - 1]
+      : (system.forecast && system.forecast[0] ? [system.forecast[0].lon, system.forecast[0].lat] : null);
+    if (anchor) {
+      const src = ICONS[system.classification] || ICONS.potential;
+      const m = L.marker(map.toLatLng(anchor), {
+        icon: L.divIcon({
+          className: isActive ? "gwo-marker-icon gwo-system-active" : "gwo-marker-icon",
+          html: `<img src="${src}" alt="" style="width:28px;height:28px;display:block;">`,
+          iconSize: [28, 28],
+          iconAnchor: [14, 14]
+        })
+      });
+      m.on("click", (e) => {
+        L.DomEvent.stopPropagation(e);
+        if (hooks.onSystemClick) hooks.onSystemClick(system.id);
+      });
+      m.addTo(map.systemsLayer);
+    }
+  });
 
   (data.shapes || []).forEach((shape) => {
     if (!shape.points || shape.points.length < 3) return;
