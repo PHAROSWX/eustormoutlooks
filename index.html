@@ -123,10 +123,19 @@
       <button class="tool-btn" data-tool="forecast" title="Click the map to add a forecast position">
         <span class="swatch-dot" style="background:#ffffff;border:1px solid #999"></span><span>Add forecast point</span>
       </button>
-      <button id="undoForecastPoint" class="btn btn-text btn-block">Remove last forecast point</button>
+      <div class="two-col">
+        <div>
+          <label class="field-label" for="hourStepDefault">Hour step</label>
+          <input id="hourStepDefault" type="number" min="1" step="1" value="24">
+        </div>
+        <div>
+          <label class="field-label" for="coneStepKm">Cone km/step</label>
+          <input id="coneStepKm" type="number" min="10" step="10" value="60">
+        </div>
+      </div>
+      <label class="checkbox-label"><input id="coneSmooth" type="checkbox" checked> Smooth &amp; round cone</label>
 
-      <label class="field-label" for="coneStepKm">Cone growth per point (km)</label>
-      <input id="coneStepKm" type="number" min="10" step="10" value="60">
+      <div id="forecastPointsList" class="forecast-points-list"></div>
 
       <button id="deleteSystemBtn" class="btn btn-danger-outline btn-block">Delete system</button>
     </div>
