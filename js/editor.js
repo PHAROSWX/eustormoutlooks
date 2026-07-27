@@ -1,5 +1,5 @@
 import { renderOutlook } from "./renderer.js";
-import { DEFAULT_CONE_STEP_KM } from "./theme.js";
+import { DEFAULT_CONE_STEP_KM, DEFAULT_CONE_SMOOTH } from "./theme.js";
 
 const L = window.L;
 
@@ -13,11 +13,12 @@ function angleFromVector(dx, dy) {
 }
 
 const CLOSE_RADIUS_PX = 14;
+const DEFAULT_HOUR_STEP = 24;
 
 export class OutlookEditor {
   /**
    * @param {import('./map.js').WindstormMap} map
-   * @param {{onChange:Function, onSelectionChange:Function, onCoord:Function}} hooks
+   * @param {{onChange:Function, onSelectionChange:Function, onCoord:Function, onSystemClick:Function}} hooks
    */
   constructor(map, hooks = {}) {
     this.map = map;
@@ -26,10 +27,11 @@ export class OutlookEditor {
     this.tool = null;
     this.value = null;
     this.draft = null;
-    this.arrowDraft = null;
+    this.arrowDraft = null; // { lon, lat, anchorPoint, angle } -- two-click gesture
     this.selected = null; // { type: 'shape'|'marker', id }
     this.activeSystemId = null;
     this.coneStepKm = DEFAULT_CONE_STEP_KM;
+    this.hourStepDefault = DEFAULT_HOUR_STEP;
     this.editable = false;
     this._bindMapEvents();
   }
@@ -44,12 +46,14 @@ export class OutlookEditor {
       shapes: (data && data.shapes) ? data.shapes.map((s) => ({ ...s })) : [],
       markers: (data && data.markers) ? data.markers.map((m) => ({ ...m })) : [],
       systems: (data && data.systems) ? data.systems.map((s) => ({
+        coneSmooth: DEFAULT_CONE_SMOOTH,
         ...s,
         track: (s.track || []).map((p) => [...p]),
         forecast: (s.forecast || []).map((p) => ({ ...p }))
       })) : []
     };
     this.draft = null;
+    this.arrowDraft = null;
     this.selected = null;
     this.activeSystemId = null;
     this.render();
@@ -70,7 +74,7 @@ export class OutlookEditor {
   setTool(tool, value = null) {
     const changingWhileDrafting = this.tool === "polygon" && (tool !== "polygon" || value !== this.value);
     if (changingWhileDrafting) this._cancelDraft();
-    if (this.arrowDraft) this._cancelArrowDraft();
+    if (this.tool === "movement" && tool !== "movement") this._cancelArrowDraft();
     if (tool !== "select") this._deselect();
 
     this.tool = tool;
@@ -93,7 +97,8 @@ export class OutlookEditor {
       classification: "potential",
       discussion: "",
       track: [],
-      forecast: []
+      forecast: [],
+      coneSmooth: DEFAULT_CONE_SMOOTH
     };
     this.data.systems.push(system);
     this.activeSystemId = system.id;
@@ -102,7 +107,7 @@ export class OutlookEditor {
   }
 
   setActiveSystem(id) {
-    this.activeSystemId = id;
+    this.activeSystemId = this.activeSystemId === id ? null : id;
     this.render();
   }
 
@@ -131,15 +136,27 @@ export class OutlookEditor {
     this._notifyChange();
   }
 
-  removeLastForecastPoint() {
+  /** Update one field (lon, lat, radiusKm, hours) of a specific forecast point by index. */
+  updateForecastPoint(index, field, value) {
     const system = this.getActiveSystem();
-    if (!system || !system.forecast.length) return;
-    system.forecast.pop();
+    if (!system || !system.forecast[index]) return;
+    system.forecast[index][field] = value;
+    this._notifyChange();
+  }
+
+  removeForecastPointAt(index) {
+    const system = this.getActiveSystem();
+    if (!system || !system.forecast[index]) return;
+    system.forecast.splice(index, 1);
     this._notifyChange();
   }
 
   setConeStepKm(km) {
     this.coneStepKm = km;
+  }
+
+  setHourStep(hours) {
+    this.hourStepDefault = hours;
   }
 
   deleteSelected() {
@@ -171,6 +188,7 @@ export class OutlookEditor {
   render() {
     renderOutlook(this.map, this.data, {
       editable: this.editable,
+      tool: this.tool,
       selectedId: this.selected && this.selected.type === "shape" ? this.selected.id : null,
       activeSystemId: this.activeSystemId,
       onShapeClick: (id) => {
@@ -188,7 +206,8 @@ export class OutlookEditor {
         }
       },
       onSystemClick: (id) => {
-        if (this.hooks.onSystemClick) this.hooks.onSystemClick(id);
+        this.setActiveSystem(id);
+        if (this.hooks.onSystemClick) this.hooks.onSystemClick(this.activeSystemId);
       }
     });
     this._renderVertexHandles();
@@ -199,8 +218,6 @@ export class OutlookEditor {
     this.map.map.on("click", (e) => this._handleClick(e));
     this.map.map.on("dblclick", (e) => this._handleDblClick(e));
     this.map.map.on("mousemove", (e) => this._handleMove(e));
-    this.map.map.on("mousedown", (e) => this._handleMouseDown(e));
-    this.map.map.on("mouseup", () => this._handleMouseUp());
   }
 
   _handleClick(e) {
@@ -218,6 +235,8 @@ export class OutlookEditor {
       this._addTrackPoint(lon, lat);
     } else if (this.tool === "forecast") {
       this._addForecastPoint(lon, lat);
+    } else if (this.tool === "movement") {
+      this._handleMovementClick(e, lon, lat);
     } else if (this.tool === "select") {
       this._deselect();
     }
@@ -232,27 +251,8 @@ export class OutlookEditor {
 
   _handleMove(e) {
     if (this.hooks.onCoord) this.hooks.onCoord(e.latlng.lng, e.latlng.lat);
-    if (this.draft && this.draft.length) this._renderDraft(e);
+    if (this.draft && this.draft.length) this._renderDraft();
     if (this.arrowDraft) this._updateArrowDraft(e);
-  }
-
-  _handleMouseDown(e) {
-    if (this.tool !== "movement" || !this.value) return;
-    this.arrowDraft = {
-      lon: e.latlng.lng,
-      lat: e.latlng.lat,
-      anchorPoint: this.map.containerPointOf(e.latlng),
-      angle: 0
-    };
-    this._renderArrowDraft();
-  }
-
-  _handleMouseUp() {
-    if (!this.arrowDraft) return;
-    const { lon, lat, angle } = this.arrowDraft;
-    this.data.markers.push({ id: uid(), kind: "movement", tier: this.value, lon, lat, angle });
-    this._cancelArrowDraft();
-    this._notifyChange();
   }
 
   // ------------------------------------------------------------- polygon draft
@@ -306,8 +306,8 @@ export class OutlookEditor {
   _addForecastPoint(lon, lat) {
     const system = this.getActiveSystem();
     if (!system) return;
-    const radiusKm = (system.forecast.length + 1) * this.coneStepKm;
-    system.forecast.push({ lon, lat, radiusKm });
+    const n = system.forecast.length + 1;
+    system.forecast.push({ lon, lat, radiusKm: n * this.coneStepKm, hours: n * this.hourStepDefault });
     this._notifyChange();
   }
 
@@ -319,7 +319,20 @@ export class OutlookEditor {
     this._notifyChange();
   }
 
-  // ------------------------------------------------------------- movement arrows (drag to set direction)
+  // ------------------------------------------------------------- movement arrows (click to anchor, click to aim)
+  _handleMovementClick(e, lon, lat) {
+    if (!this.value) return;
+    if (!this.arrowDraft) {
+      this.arrowDraft = { lon, lat, anchorPoint: this.map.containerPointOf(e.latlng), angle: 0 };
+      this._renderArrowDraft();
+      return;
+    }
+    const { angle } = this.arrowDraft;
+    this.data.markers.push({ id: uid(), kind: "movement", tier: this.value, lon: this.arrowDraft.lon, lat: this.arrowDraft.lat, angle });
+    this._cancelArrowDraft();
+    this._notifyChange();
+  }
+
   _updateArrowDraft(e) {
     if (!this.arrowDraft) return;
     const dx = e.containerPoint.x - this.arrowDraft.anchorPoint.x;
@@ -334,9 +347,12 @@ export class OutlookEditor {
     const start = this.map.toLatLng([this.arrowDraft.lon, this.arrowDraft.lat]);
     const startPt = this.map.containerPointOf(start);
     const rad = (this.arrowDraft.angle * Math.PI) / 180;
-    const endPt = L.point(startPt.x + 34 * Math.sin(rad), startPt.y - 34 * Math.cos(rad));
+    const len = 40;
+    const endPt = L.point(startPt.x + len * Math.sin(rad), startPt.y - len * Math.cos(rad));
     const endLatLng = this.map.map.containerPointToLatLng(endPt);
-    L.polyline([start, endLatLng], { renderer: this.map.renderer, color: "#2c8a80", weight: 2.2 })
+    L.circleMarker(start, { renderer: this.map.renderer, radius: 4, color: "#2c8a80", fillColor: "#2c8a80", fillOpacity: 1 })
+      .addTo(this.map.draftLayer);
+    L.polyline([start, endLatLng], { renderer: this.map.renderer, color: "#2c8a80", weight: 2.4 })
       .addTo(this.map.draftLayer);
   }
 
@@ -384,13 +400,16 @@ export class OutlookEditor {
   _redrawSelectedShapeOnly() {
     renderOutlook(this.map, this.data, {
       editable: this.editable,
+      tool: this.tool,
       selectedId: this.selected ? this.selected.id : null,
+      activeSystemId: this.activeSystemId,
       onShapeClick: (id) => { if (this.tool === "select") this._select("shape", id); },
       onMarkerClick: (id) => { if (this.tool === "select") this._select("marker", id); },
       onMarkerDrag: (id, lon, lat) => {
         const marker = this.data.markers.find((m) => m.id === id);
         if (marker) { marker.lon = lon; marker.lat = lat; }
-      }
+      },
+      onSystemClick: () => {}
     });
   }
 
