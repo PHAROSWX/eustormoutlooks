@@ -1,16 +1,17 @@
-import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7/+esm";
 import { renderOutlook } from "./renderer.js";
+
+const L = window.L;
 
 function uid() {
   return Math.random().toString(36).slice(2, 10);
 }
 
 function angleFromVector(dx, dy) {
-  // 0deg = pointing up/north, increasing clockwise -- matches SVG rotate().
+  // 0deg = pointing up/north, increasing clockwise -- matches CSS rotate().
   return (Math.atan2(dx, -dy) * 180) / Math.PI;
 }
 
-const CLOSE_RADIUS_PX = 12;
+const CLOSE_RADIUS_PX = 14;
 
 export class OutlookEditor {
   /**
@@ -26,8 +27,13 @@ export class OutlookEditor {
     this.draft = null;
     this.arrowDraft = null;
     this.selected = null; // { type: 'shape'|'marker', id }
+    this.editable = false;
     this._bindMapEvents();
-    this._bindArrowDrag();
+  }
+
+  setEditable(editable) {
+    this.editable = editable;
+    this.render();
   }
 
   setData(data) {
@@ -50,11 +56,12 @@ export class OutlookEditor {
   setTool(tool, value = null) {
     const changingWhileDrafting = this.tool === "polygon" && (tool !== "polygon" || value !== this.value);
     if (changingWhileDrafting) this._cancelDraft();
+    if (this.arrowDraft) this._cancelArrowDraft();
     if (tool !== "select") this._deselect();
 
     this.tool = tool;
     this.value = value;
-    this.map.rootEl.classList.toggle("tool-active", !!tool && tool !== "select" && tool !== null);
+    this.map.rootEl.classList.toggle("tool-active", !!tool && tool !== "select");
 
     if (tool && tool !== "select") {
       this.map.disablePan();
@@ -90,59 +97,91 @@ export class OutlookEditor {
   }
 
   render() {
-    renderOutlook(this.map, this.data);
-    this._attachElementHandlers();
-    this._renderHandles();
+    renderOutlook(this.map, this.data, {
+      editable: this.editable,
+      selectedId: this.selected && this.selected.type === "shape" ? this.selected.id : null,
+      onShapeClick: (id) => {
+        if (this.tool === "select") this._select("shape", id);
+      },
+      onMarkerClick: (id) => {
+        if (this.tool === "select") this._select("marker", id);
+      },
+      onMarkerDrag: (id, lon, lat) => {
+        const marker = this.data.markers.find((m) => m.id === id);
+        if (marker) {
+          marker.lon = lon;
+          marker.lat = lat;
+          this._notifyChange();
+        }
+      }
+    });
+    this._renderVertexHandles();
   }
 
   // ------------------------------------------------------------- map events
   _bindMapEvents() {
-    this.map.svg.on("click.editor", (event) => this._handleClick(event));
-    this.map.svg.on("dblclick.editor", (event) => this._handleDblClick(event));
-    this.map.svg.on("mousemove.editor", (event) => this._handleMove(event));
+    this.map.map.on("click", (e) => this._handleClick(e));
+    this.map.map.on("dblclick", (e) => this._handleDblClick(e));
+    this.map.map.on("mousemove", (e) => this._handleMove(e));
+    this.map.map.on("mousedown", (e) => this._handleMouseDown(e));
+    this.map.map.on("mouseup", () => this._handleMouseUp());
   }
 
-  _handleClick(event) {
-    const [lon, lat] = this.map.screenToLonLat(event.clientX, event.clientY);
+  _handleClick(e) {
+    const lon = e.latlng.lng;
+    const lat = e.latlng.lat;
     if (this.hooks.onCoord) this.hooks.onCoord(lon, lat);
 
     if (this.tool === "polygon") {
-      this._addDraftPoint(event, lon, lat);
+      this._addDraftPoint(e, lon, lat);
     } else if (this.tool === "chance") {
       this._placeMarker({ kind: "chance", tier: this.value, lon, lat });
     } else if (this.tool === "classification") {
       this._placeMarker({ kind: "classification", subtype: this.value, lon, lat });
     } else if (this.tool === "select") {
-      if (event.target.tagName.toLowerCase() === "svg") this._deselect();
+      this._deselect();
     }
-    // "movement" placement is handled entirely by the drag gesture below.
   }
 
-  _handleDblClick(event) {
+  _handleDblClick(e) {
     if (this.tool === "polygon") {
-      event.preventDefault();
+      L.DomEvent.stopPropagation(e);
       this._finishDraft();
     }
   }
 
-  _handleMove(event) {
-    const [lon, lat] = this.map.screenToLonLat(event.clientX, event.clientY);
-    if (this.hooks.onCoord) this.hooks.onCoord(lon, lat);
-    if (this.draft && this.draft.length) this._renderDraft(event);
+  _handleMove(e) {
+    if (this.hooks.onCoord) this.hooks.onCoord(e.latlng.lng, e.latlng.lat);
+    if (this.draft && this.draft.length) this._renderDraft(e);
+    if (this.arrowDraft) this._updateArrowDraft(e);
+  }
+
+  _handleMouseDown(e) {
+    if (this.tool !== "movement" || !this.value) return;
+    this.arrowDraft = {
+      lon: e.latlng.lng,
+      lat: e.latlng.lat,
+      anchorPoint: this.map.containerPointOf(e.latlng),
+      angle: 0
+    };
+    this._renderArrowDraft();
+  }
+
+  _handleMouseUp() {
+    if (!this.arrowDraft) return;
+    const { lon, lat, angle } = this.arrowDraft;
+    this.data.markers.push({ id: uid(), kind: "movement", tier: this.value, lon, lat, angle });
+    this._cancelArrowDraft();
+    this._notifyChange();
   }
 
   // ------------------------------------------------------------- polygon draft
-  _addDraftPoint(event, lon, lat) {
+  _addDraftPoint(e, lon, lat) {
     if (!this.draft) this.draft = [];
 
     if (this.draft.length >= 3) {
-      const first = this.map.project(this.draft[0]);
-      const rect = this.map.rootEl.getBoundingClientRect();
-      const px = event.clientX - rect.left;
-      const py = event.clientY - rect.top;
-      const zx = first[0] * this.map.zoomTransform.k + this.map.zoomTransform.x;
-      const zy = first[1] * this.map.zoomTransform.k + this.map.zoomTransform.y;
-      const dist = Math.hypot(px - zx, py - zy);
+      const firstPoint = this.map.containerPointOf(this.map.toLatLng(this.draft[0]));
+      const dist = firstPoint.distanceTo(e.containerPoint);
       if (dist <= CLOSE_RADIUS_PX) {
         this._finishDraft();
         return;
@@ -153,18 +192,15 @@ export class OutlookEditor {
   }
 
   _renderDraft() {
-    const pts = this.draft.map((p) => this.map.project(p));
-    const dAttr = pts.length ? `M${pts.map((p) => p.join(",")).join("L")}` : "";
-
-    this.map.draftLayer.selectAll("path.zone-draft-line").data([dAttr]).join("path")
-      .attr("class", "zone-draft-line")
-      .attr("d", dAttr);
-
-    this.map.draftLayer.selectAll("circle.zone-vertex").data(this.draft).join("circle")
-      .attr("class", "zone-vertex")
-      .attr("r", 4)
-      .attr("cx", (d) => this.map.project(d)[0])
-      .attr("cy", (d) => this.map.project(d)[1]);
+    this.map.draftLayer.clearLayers();
+    if (!this.draft || !this.draft.length) return;
+    const latlngs = this.draft.map((p) => this.map.toLatLng(p));
+    L.polyline(latlngs, { renderer: this.map.renderer, color: "#2c8a80", weight: 1.6, dashArray: "4 3" })
+      .addTo(this.map.draftLayer);
+    this.draft.forEach((p) => {
+      L.circleMarker(this.map.toLatLng(p), { renderer: this.map.renderer, radius: 4, color: "#2c8a80", fillColor: "#2c8a80", fillOpacity: 1 })
+        .addTo(this.map.draftLayer);
+    });
   }
 
   _finishDraft() {
@@ -177,7 +213,7 @@ export class OutlookEditor {
 
   _cancelDraft() {
     this.draft = null;
-    this.map.draftLayer.selectAll("*").remove();
+    this.map.draftLayer.clearLayers();
   }
 
   // ------------------------------------------------------------- point markers
@@ -189,106 +225,78 @@ export class OutlookEditor {
   }
 
   // ------------------------------------------------------------- movement arrows (drag to set direction)
-  _bindArrowDrag() {
-    const drag = d3.drag()
-      .on("start", (event) => {
-        if (this.tool !== "movement" || !this.value) return;
-        const [lon, lat] = this.map.screenToLonLat(event.sourceEvent.clientX, event.sourceEvent.clientY);
-        this.arrowDraft = { lon, lat, angle: 0, anchorScreen: [event.sourceEvent.clientX, event.sourceEvent.clientY] };
-        this._renderArrowDraft();
-      })
-      .on("drag", (event) => {
-        if (!this.arrowDraft) return;
-        const [ax, ay] = this.arrowDraft.anchorScreen;
-        const dx = event.sourceEvent.clientX - ax;
-        const dy = event.sourceEvent.clientY - ay;
-        this.arrowDraft.angle = angleFromVector(dx, dy);
-        this._renderArrowDraft();
-      })
-      .on("end", () => {
-        if (!this.arrowDraft) return;
-        const { lon, lat, angle } = this.arrowDraft;
-        this.data.markers.push({ id: uid(), kind: "movement", tier: this.value, lon, lat, angle });
-        this.arrowDraft = null;
-        this.map.draftLayer.selectAll("*").remove();
-        this._notifyChange();
-      });
-    this.map.svg.call(drag);
+  _updateArrowDraft(e) {
+    if (!this.arrowDraft) return;
+    const dx = e.containerPoint.x - this.arrowDraft.anchorPoint.x;
+    const dy = e.containerPoint.y - this.arrowDraft.anchorPoint.y;
+    this.arrowDraft.angle = angleFromVector(dx, dy);
+    this._renderArrowDraft();
   }
 
   _renderArrowDraft() {
     if (!this.arrowDraft) return;
-    const [x, y] = this.map.project([this.arrowDraft.lon, this.arrowDraft.lat]);
-    this.map.draftLayer.selectAll("line.arrow-draft-line").data([this.arrowDraft]).join("line")
-      .attr("class", "arrow-draft-line")
-      .attr("x1", x).attr("y1", y)
-      .attr("x2", x + 30 * Math.sin((this.arrowDraft.angle * Math.PI) / 180))
-      .attr("y2", y - 30 * Math.cos((this.arrowDraft.angle * Math.PI) / 180));
+    this.map.draftLayer.clearLayers();
+    const start = this.map.toLatLng([this.arrowDraft.lon, this.arrowDraft.lat]);
+    const startPt = this.map.containerPointOf(start);
+    const rad = (this.arrowDraft.angle * Math.PI) / 180;
+    const endPt = L.point(startPt.x + 34 * Math.sin(rad), startPt.y - 34 * Math.cos(rad));
+    const endLatLng = this.map.map.containerPointToLatLng(endPt);
+    L.polyline([start, endLatLng], { renderer: this.map.renderer, color: "#2c8a80", weight: 2.2 })
+      .addTo(this.map.draftLayer);
   }
 
-  // ------------------------------------------------------------- selection
-  _attachElementHandlers() {
-    this.map.shapesLayer.selectAll("path.zone-shape")
-      .on("click", (event, d) => {
-        if (this.tool !== "select") return;
-        event.stopPropagation();
-        this._select("shape", d.id);
-      });
-
-    const dragMarker = d3.drag()
-      .on("drag", (event, d) => {
-        if (this.tool !== "select") return;
-        const [lon, lat] = this.map.screenToLonLat(event.sourceEvent.clientX, event.sourceEvent.clientY);
-        d.lon = lon;
-        d.lat = lat;
-        this.render();
-      });
-
-    this.map.markersLayer.selectAll("g.marker")
-      .on("click", (event, d) => {
-        if (this.tool !== "select") return;
-        event.stopPropagation();
-        this._select("marker", d.id);
-      })
-      .call(dragMarker);
+  _cancelArrowDraft() {
+    this.arrowDraft = null;
+    this.map.draftLayer.clearLayers();
   }
 
+  // ------------------------------------------------------------- selection / vertex editing
   _select(type, id) {
     this.selected = { type, id };
     if (this.hooks.onSelectionChange) this.hooks.onSelectionChange(this.selected);
-    this._renderHandles();
+    this.render();
   }
 
   _deselect() {
+    if (!this.selected) return;
     this.selected = null;
     if (this.hooks.onSelectionChange) this.hooks.onSelectionChange(null);
-    if (this.map.handlesLayer) this.map.handlesLayer.selectAll("*").remove();
+    this.render();
   }
 
-  _renderHandles() {
-    this.map.handlesLayer.selectAll("*").remove();
-    this.map.shapesLayer.selectAll("path.zone-shape")
-      .classed("editing", (d) => this.selected && this.selected.type === "shape" && d.id === this.selected.id);
-
-    if (!this.selected || this.selected.type !== "shape") return;
+  _renderVertexHandles() {
+    this.map.handlesLayer.clearLayers();
+    if (!this.editable || !this.selected || this.selected.type !== "shape") return;
     const shape = this.data.shapes.find((s) => s.id === this.selected.id);
     if (!shape) return;
 
-    const dragVertex = d3.drag().on("drag", (event, d) => {
-      const [lon, lat] = this.map.screenToLonLat(event.sourceEvent.clientX, event.sourceEvent.clientY);
-      shape.points[d.i] = [lon, lat];
-      this.render();
-      this._select("shape", shape.id);
+    shape.points.forEach((p, i) => {
+      const handle = L.marker(this.map.toLatLng(p), {
+        draggable: true,
+        icon: L.divIcon({ className: "gwo-vertex-handle", iconSize: [12, 12], iconAnchor: [6, 6] })
+      });
+      handle.on("drag", () => {
+        const ll = handle.getLatLng();
+        shape.points[i] = this.map.fromLatLng(ll);
+        this._redrawSelectedShapeOnly();
+      });
+      handle.on("dragend", () => this._notifyChange());
+      handle.addTo(this.map.handlesLayer);
     });
+  }
 
-    this.map.handlesLayer.selectAll("circle.zone-vertex")
-      .data(shape.points.map((p, i) => ({ p, i })))
-      .join("circle")
-      .attr("class", "zone-vertex")
-      .attr("r", 5)
-      .attr("cx", (d) => this.map.project(d.p)[0])
-      .attr("cy", (d) => this.map.project(d.p)[1])
-      .call(dragVertex);
+  /** Lightweight live-update while dragging a vertex, without a full re-render + handle rebuild. */
+  _redrawSelectedShapeOnly() {
+    renderOutlook(this.map, this.data, {
+      editable: this.editable,
+      selectedId: this.selected ? this.selected.id : null,
+      onShapeClick: (id) => { if (this.tool === "select") this._select("shape", id); },
+      onMarkerClick: (id) => { if (this.tool === "select") this._select("marker", id); },
+      onMarkerDrag: (id, lon, lat) => {
+        const marker = this.data.markers.find((m) => m.id === id);
+        if (marker) { marker.lon = lon; marker.lat = lat; }
+      }
+    });
   }
 
   _notifyChange() {
