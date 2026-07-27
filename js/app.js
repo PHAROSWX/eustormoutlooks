@@ -46,8 +46,10 @@ const systemLabel = $("#systemLabel");
 const systemClassification = $("#systemClassification");
 const systemDiscussion = $("#systemDiscussion");
 const undoTrackPoint = $("#undoTrackPoint");
-const undoForecastPoint = $("#undoForecastPoint");
+const hourStepDefault = $("#hourStepDefault");
 const coneStepKm = $("#coneStepKm");
+const coneSmooth = $("#coneSmooth");
+const forecastPointsList = $("#forecastPointsList");
 const deleteSystemBtn = $("#deleteSystemBtn");
 
 const exportPngBtn = $("#exportPngBtn");
@@ -139,6 +141,8 @@ function stopLiveSubscription() {
 startLiveSubscription();
 
 // ---------------------------------------------------------------- systems panel
+let lastForecastSignature = "";
+
 function refreshSystemsPanel() {
   const data = editor.getData();
   const systems = data.systems || [];
@@ -166,13 +170,81 @@ function refreshSystemsPanel() {
   const active = editor.getActiveSystem();
   if (active && userIsEditor) {
     systemEditor.classList.remove("hidden");
-    systemLabel.value = active.label || "";
+    if (document.activeElement !== systemLabel) systemLabel.value = active.label || "";
     systemClassification.value = active.classification || "potential";
-    systemDiscussion.value = active.discussion || "";
+    if (document.activeElement !== systemDiscussion) systemDiscussion.value = active.discussion || "";
+    hourStepDefault.value = editor.hourStepDefault;
     coneStepKm.value = editor.coneStepKm;
+    coneSmooth.checked = active.coneSmooth !== false;
+
+    // Only rebuild the list (which would steal focus) when the point count
+    // actually changed -- not on every keystroke while editing a value.
+    const signature = `${active.id}:${active.forecast.length}`;
+    if (signature !== lastForecastSignature) {
+      renderForecastPointsList(active);
+      lastForecastSignature = signature;
+    }
   } else {
     systemEditor.classList.add("hidden");
+    lastForecastSignature = "";
   }
+}
+
+function renderForecastPointsList(system) {
+  forecastPointsList.innerHTML = "";
+  if (!system.forecast.length) {
+    const p = document.createElement("p");
+    p.className = "empty-hint";
+    p.textContent = "No forecast points yet.";
+    forecastPointsList.appendChild(p);
+    return;
+  }
+  system.forecast.forEach((pt, i) => {
+    const row = document.createElement("div");
+    row.className = "forecast-point-row";
+
+    const hourInput = document.createElement("input");
+    hourInput.type = "number";
+    hourInput.min = "1";
+    hourInput.title = "Forecast hour (+h)";
+    hourInput.value = pt.hours != null ? pt.hours : (i + 1) * editor.hourStepDefault;
+    hourInput.addEventListener("input", () => {
+      editor.updateForecastPoint(i, "hours", Number(hourInput.value) || 0);
+    });
+
+    const hourSuffix = document.createElement("span");
+    hourSuffix.className = "forecast-point-suffix";
+    hourSuffix.textContent = "h";
+
+    const radiusInput = document.createElement("input");
+    radiusInput.type = "number";
+    radiusInput.min = "1";
+    radiusInput.step = "10";
+    radiusInput.title = "Cone radius at this point (km)";
+    radiusInput.value = pt.radiusKm;
+    radiusInput.addEventListener("input", () => {
+      editor.updateForecastPoint(i, "radiusKm", Number(radiusInput.value) || 1);
+    });
+
+    const radiusSuffix = document.createElement("span");
+    radiusSuffix.className = "forecast-point-suffix";
+    radiusSuffix.textContent = "km";
+
+    const removeBtn = document.createElement("button");
+    removeBtn.className = "btn btn-text forecast-point-remove";
+    removeBtn.textContent = "\u2715";
+    removeBtn.title = "Remove this forecast point";
+    removeBtn.addEventListener("click", () => {
+      editor.removeForecastPointAt(i);
+    });
+
+    row.appendChild(hourInput);
+    row.appendChild(hourSuffix);
+    row.appendChild(radiusInput);
+    row.appendChild(radiusSuffix);
+    row.appendChild(removeBtn);
+    forecastPointsList.appendChild(row);
+  });
 }
 
 newSystemBtn.addEventListener("click", () => {
@@ -185,8 +257,9 @@ systemClassification.addEventListener("change", () => {
 });
 systemDiscussion.addEventListener("input", () => editor.updateActiveSystemField("discussion", systemDiscussion.value));
 undoTrackPoint.addEventListener("click", () => editor.removeLastTrackPoint());
-undoForecastPoint.addEventListener("click", () => editor.removeLastForecastPoint());
+hourStepDefault.addEventListener("input", () => editor.setHourStep(Number(hourStepDefault.value) || 24));
 coneStepKm.addEventListener("input", () => editor.setConeStepKm(Number(coneStepKm.value) || 60));
+coneSmooth.addEventListener("change", () => editor.updateActiveSystemField("coneSmooth", coneSmooth.checked));
 deleteSystemBtn.addEventListener("click", () => {
   editor.deleteActiveSystem();
   refreshSystemsPanel();
