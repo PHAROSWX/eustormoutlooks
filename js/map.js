@@ -1,142 +1,114 @@
-import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7/+esm";
-import { loadWorld } from "./geo-data.js";
 import { TIER_COLORS } from "./theme.js";
+
+const L = window.L;
+
+// CARTO Voyager, no labels: real-world, high-resolution coastlines and
+// country borders baked into the tiles (no custom projection math needed,
+// and panning/zooming is Leaflet's own well-tested implementation).
+const TILE_URL = "https://{s}.basemaps.cartocdn.com/rastertiles/voyager_nolabels/{z}/{x}/{y}{r}.png";
+const TILE_ATTRIBUTION =
+  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors ' +
+  '&copy; <a href="https://carto.com/attributions">CARTO</a>';
 
 export class WindstormMap {
   /**
    * @param {HTMLElement} rootEl
-   * @param {{center:[number,number], scaleFactor:number}} opts
+   * @param {{center:[number,number], zoom:number}} opts  center is [lon, lat]
    */
   constructor(rootEl, opts) {
     this.rootEl = rootEl;
-    this.opts = opts;
-    this.projection = d3.geoMercator().center(opts.center).scale(opts.scaleFactor);
-    this.pathGen = d3.geoPath(this.projection);
-    this.zoomTransform = d3.zoomIdentity;
 
-    this._buildSkeleton();
-    this._bindZoom();
-    this._bindResize();
-  }
-
-  async init() {
-    this._resize();
-    const { countries, borders } = await loadWorld();
-    this.landLayer.selectAll("path")
-      .data(countries.features)
-      .join("path")
-      .attr("class", "land-fill")
-      .attr("d", this.pathGen);
-
-    this.borderLayer.append("path")
-      .datum(borders)
-      .attr("class", "coastline")
-      .attr("fill", "none")
-      .attr("d", this.pathGen);
-
-    this._drawGraticule();
-  }
-
-  // ---------------------------------------------------------------- layers
-  _buildSkeleton() {
-    const svg = d3.select(this.rootEl).append("svg")
-      .attr("preserveAspectRatio", "xMidYMid slice");
-
-    const defs = svg.append("defs");
-    Object.entries(TIER_COLORS).forEach(([tier, color]) => {
-      const hatch = defs.append("pattern")
-        .attr("id", `hatch-${tier}`)
-        .attr("width", 8).attr("height", 8)
-        .attr("patternUnits", "userSpaceOnUse")
-        .attr("patternTransform", "rotate(45)");
-      hatch.append("rect").attr("width", 8).attr("height", 8)
-        .attr("fill", color).attr("fill-opacity", 0.16);
-      hatch.append("line").attr("x1", 0).attr("y1", 0).attr("x2", 0).attr("y2", 8)
-        .attr("stroke", color).attr("stroke-opacity", 0.75).attr("stroke-width", 2.2);
+    this.map = L.map(rootEl, {
+      center: [opts.center[1], opts.center[0]],
+      zoom: opts.zoom || 5,
+      minZoom: 3,
+      maxZoom: 12,
+      zoomControl: false,
+      doubleClickZoom: false, // dblclick is reserved for finishing a zone
+      worldCopyJump: false
     });
 
-    this.svg = svg;
-    this.zoomLayer = svg.append("g").attr("class", "zoom-layer");
-    this.graticuleLayer = this.zoomLayer.append("g").attr("class", "graticule");
-    this.landLayer = this.zoomLayer.append("g").attr("class", "land");
-    this.borderLayer = this.zoomLayer.append("g").attr("class", "borders");
-    this.shapesLayer = this.zoomLayer.append("g").attr("class", "shapes");
-    this.markersLayer = this.zoomLayer.append("g").attr("class", "markers");
-    this.draftLayer = this.zoomLayer.append("g").attr("class", "draft");
-    this.handlesLayer = this.zoomLayer.append("g").attr("class", "handles");
+    L.tileLayer(TILE_URL, { attribution: TILE_ATTRIBUTION, maxZoom: 20 }).addTo(this.map);
+
+    // Force the SVG renderer to exist immediately so we can inject shared
+    // hatch-pattern <defs> that our zone polygons reference by url(#...).
+    this.renderer = L.svg({ padding: 2 }).addTo(this.map);
+    this._injectHatchDefs();
+
+    this.shapesLayer = L.layerGroup().addTo(this.map);
+    this.markersLayer = L.layerGroup().addTo(this.map);
+    this.draftLayer = L.layerGroup().addTo(this.map);
+    this.handlesLayer = L.layerGroup().addTo(this.map);
   }
 
-  _drawGraticule() {
-    // Extent constrained to the AOI: an unbounded graticule blows up near
-    // the poles under Mercator and was the main source of zoom/pan jank.
-    const grat = d3.geoGraticule().extent([[-95, 12], [55, 80]]).step([10, 10]);
-    this.graticuleLayer.append("path")
-      .datum(grat())
-      .attr("class", "graticule-line")
-      .attr("d", this.pathGen);
+  // eslint-disable-next-line class-methods-use-this
+  async init() {
+    // Tiles load themselves -- nothing async needed before first render.
   }
 
-  // ---------------------------------------------------------------- zoom/pan
-  _bindZoom() {
-    this.zoom = d3.zoom()
-      .scaleExtent([0.8, 12])
-      .on("zoom", (event) => {
-        this.zoomTransform = event.transform;
-        this.zoomLayer.attr("transform", event.transform);
-      });
-    this.svg.call(this.zoom);
-    // dblclick is reserved for finishing a polygon draft, not map zoom.
-    this.svg.on("dblclick.zoom", null);
-  }
+  _injectHatchDefs() {
+    const svg = this.renderer._container;
+    const NS = "http://www.w3.org/2000/svg";
+    const defs = document.createElementNS(NS, "defs");
+    Object.entries(TIER_COLORS).forEach(([tier, color]) => {
+      const pattern = document.createElementNS(NS, "pattern");
+      pattern.setAttribute("id", `hatch-${tier}`);
+      pattern.setAttribute("width", "8");
+      pattern.setAttribute("height", "8");
+      pattern.setAttribute("patternUnits", "userSpaceOnUse");
+      pattern.setAttribute("patternTransform", "rotate(45)");
 
-  zoomBy(factor) {
-    this.svg.transition().duration(220).ease(d3.easeCubicOut).call(this.zoom.scaleBy, factor);
-  }
+      const rect = document.createElementNS(NS, "rect");
+      rect.setAttribute("width", "8");
+      rect.setAttribute("height", "8");
+      rect.setAttribute("fill", color);
+      rect.setAttribute("fill-opacity", "0.22");
 
-  _bindResize() {
-    const ro = new ResizeObserver(() => this._resize());
-    ro.observe(this.rootEl);
-  }
+      const line = document.createElementNS(NS, "line");
+      line.setAttribute("x1", "0");
+      line.setAttribute("y1", "0");
+      line.setAttribute("x2", "0");
+      line.setAttribute("y2", "8");
+      line.setAttribute("stroke", color);
+      line.setAttribute("stroke-opacity", "0.85");
+      line.setAttribute("stroke-width", "2.2");
 
-  _resize() {
-    const w = this.rootEl.clientWidth || 800;
-    const h = this.rootEl.clientHeight || 600;
-    this.svg.attr("viewBox", `0 0 ${w} ${h}`);
-    this.projection.translate([w / 2, h / 2]);
-    // Clip well outside the viewport (not tightly) so panning doesn't pop
-    // geometry in/out, but far enough to drop degenerate Mercator geometry.
-    this.projection.clipExtent([[-w, -h], [2 * w, 2 * h]]);
-    if (this.landLayer) {
-      this.landLayer.selectAll("path").attr("d", this.pathGen);
-      this.borderLayer.selectAll("path").attr("d", this.pathGen);
-      this.graticuleLayer.selectAll("path").attr("d", this.pathGen);
-    }
+      pattern.appendChild(rect);
+      pattern.appendChild(line);
+      defs.appendChild(pattern);
+    });
+    svg.insertBefore(defs, svg.firstChild);
   }
 
   // ---------------------------------------------------------------- coords
-  /** Project [lon, lat] to raw (pre-zoom) pixel coords inside the zoom layer. */
-  project(lonLat) {
-    return this.projection(lonLat);
+  /** Our data model stores points as [lon, lat] (GeoJSON order). */
+  toLatLng([lon, lat]) {
+    return L.latLng(lat, lon);
+  }
+  fromLatLng(latlng) {
+    return [latlng.lng, latlng.lat];
   }
 
-  /** Convert a pointer/mouse client event into [lon, lat]. */
   screenToLonLat(clientX, clientY) {
     const rect = this.rootEl.getBoundingClientRect();
-    const x = clientX - rect.left;
-    const y = clientY - rect.top;
-    const [zx, zy] = this.zoomTransform.invert([x, y]);
-    return this.projection.invert([zx, zy]);
+    const point = L.point(clientX - rect.left, clientY - rect.top);
+    const latlng = this.map.containerPointToLatLng(point);
+    return [latlng.lng, latlng.lat];
   }
 
-  onPointer(eventName, handler) {
-    this.svg.on(eventName, handler);
+  containerPointOf(latlng) {
+    return this.map.latLngToContainerPoint(latlng);
+  }
+
+  zoomBy(factor) {
+    const delta = factor > 1 ? 1 : -1;
+    this.map.setZoom(this.map.getZoom() + delta, { animate: true });
   }
 
   disablePan() {
-    this.svg.on(".zoom", null);
+    this.map.dragging.disable();
   }
   enablePan() {
-    this.svg.call(this.zoom);
-    this.svg.on("dblclick.zoom", null);
+    this.map.dragging.enable();
   }
 }
