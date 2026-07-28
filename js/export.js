@@ -82,6 +82,106 @@ function drawHatchedPolygon(ctx, points, project, color) {
 }
 
 /**
+ * Renders a standalone shareable "Key Messages" card (title + system label +
+ * icon + bulleted list) -- NHC's Key Messages graphic is its own image, not
+ * a map overlay, so this is a separate canvas/download from the main map.
+ * @param {{label:string, classification:string, keyMessages:string[]}} system
+ * @param {string} bulletinTitle
+ */
+export async function exportKeyMessagesPNG(system, bulletinTitle) {
+  const width = 900;
+  const padding = 40;
+  const lineHeight = 34;
+  const bulletFont = "500 22px 'IBM Plex Sans', sans-serif";
+
+  // Measure first with a scratch canvas to size the final one.
+  const scratch = document.createElement("canvas").getContext("2d");
+  scratch.font = bulletFont;
+  const maxTextWidth = width - padding * 2 - 40;
+  const wrapLine = (text) => {
+    const words = text.split(" ");
+    const lines = [];
+    let line = "";
+    words.forEach((w) => {
+      const test = line ? `${line} ${w}` : w;
+      if (scratch.measureText(test).width > maxTextWidth && line) {
+        lines.push(line);
+        line = w;
+      } else {
+        line = test;
+      }
+    });
+    if (line) lines.push(line);
+    return lines;
+  };
+
+  const messages = system.keyMessages && system.keyMessages.length
+    ? system.keyMessages
+    : ["No key messages have been posted for this system yet."];
+  const wrapped = messages.map(wrapLine);
+  const bulletLineCount = wrapped.reduce((sum, l) => sum + l.length, 0);
+  const headerHeight = 150;
+  const height = headerHeight + bulletLineCount * lineHeight + messages.length * 10 + padding;
+
+  const canvas = document.createElement("canvas");
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = width * dpr;
+  canvas.height = height * dpr;
+  const ctx = canvas.getContext("2d");
+  ctx.scale(dpr, dpr);
+
+  ctx.fillStyle = "#0a1420";
+  ctx.fillRect(0, 0, width, height);
+
+  const headerColor = system.classification === "major-storm" ? "#9b1c1c"
+    : system.classification === "storm" ? "#e0080a"
+    : system.classification === "remnants" ? "#7a1f1f" : "#e0a33d";
+  ctx.fillStyle = headerColor;
+  ctx.fillRect(0, 0, width, 8);
+
+  ctx.fillStyle = "#8ea3b3";
+  ctx.font = "600 13px 'IBM Plex Mono', monospace";
+  ctx.textBaseline = "top";
+  ctx.fillText((bulletinTitle || "Graphical Windstorm Outlook").toUpperCase(), padding, 30);
+
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "700 30px 'IBM Plex Sans', sans-serif";
+  ctx.fillText(`Key Messages: ${system.label || "System"}`, padding, 58);
+
+  const src = ICONS[system.classification] || ICONS.potential;
+  try {
+    const img = await loadImage(src);
+    ctx.drawImage(img, width - padding - 56, 24, 56, 56);
+  } catch (e) {
+    // Icon failing to load shouldn't block the rest of the graphic.
+  }
+
+  let y = headerHeight;
+  ctx.fillStyle = "#e7edf1";
+  wrapped.forEach((lines) => {
+    ctx.font = "700 26px 'IBM Plex Sans', sans-serif";
+    ctx.fillStyle = headerColor;
+    ctx.fillText("\u25CF", padding, y + 2);
+    ctx.font = bulletFont;
+    ctx.fillStyle = "#e7edf1";
+    lines.forEach((line, i) => {
+      ctx.fillText(line, padding + 32, y);
+      y += lineHeight;
+    });
+    y += 10;
+  });
+
+  const url = canvas.toDataURL("image/png");
+  const a = document.createElement("a");
+  a.href = url;
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
+  a.download = `key-messages-${(system.label || "system").replace(/\s+/g, "-").toLowerCase()}-${stamp}.png`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+/**
  * Renders the current view (land, zones, cones/tracks, markers) directly to
  * a canvas using live screen coordinates from the map, then downloads it.
  * (Deliberately not touching Leaflet's internal SVG -- its panning offset
