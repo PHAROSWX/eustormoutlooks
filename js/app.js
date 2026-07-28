@@ -3,7 +3,7 @@ import { WindstormMap } from "./map.js";
 import { OutlookEditor } from "./editor.js";
 import { watchAuth, login, logout } from "./auth.js";
 import { publishOutlook, subscribeLatest, listArchive, getOutlookById, COLLECTIONS } from "./outlook-store.js";
-import { exportOutlookPNG } from "./export.js";
+import { exportOutlookPNG, exportKeyMessagesPNG } from "./export.js";
 
 // ---------------------------------------------------------------- DOM refs
 const $ = (sel) => document.querySelector(sel);
@@ -44,12 +44,20 @@ const newSystemBtn = $("#newSystemBtn");
 const systemEditor = $("#systemEditor");
 const systemLabel = $("#systemLabel");
 const systemClassification = $("#systemClassification");
-const systemDiscussion = $("#systemDiscussion");
+const advisoryHistory = $("#advisoryHistory");
+const newAdvisoryText = $("#newAdvisoryText");
+const newAdvisoryWind = $("#newAdvisoryWind");
+const postAdvisoryBtn = $("#postAdvisoryBtn");
 const undoTrackPoint = $("#undoTrackPoint");
 const hourStepDefault = $("#hourStepDefault");
 const coneStepKm = $("#coneStepKm");
 const coneSmooth = $("#coneSmooth");
 const forecastPointsList = $("#forecastPointsList");
+const removeLastWarningBtn = $("#removeLastWarningBtn");
+const keyMessagesList = $("#keyMessagesList");
+const newKeyMessageText = $("#newKeyMessageText");
+const addKeyMessageBtn = $("#addKeyMessageBtn");
+const exportKeyMessagesBtn = $("#exportKeyMessagesBtn");
 const deleteSystemBtn = $("#deleteSystemBtn");
 
 const exportPngBtn = $("#exportPngBtn");
@@ -172,10 +180,12 @@ function refreshSystemsPanel() {
     systemEditor.classList.remove("hidden");
     if (document.activeElement !== systemLabel) systemLabel.value = active.label || "";
     systemClassification.value = active.classification || "potential";
-    if (document.activeElement !== systemDiscussion) systemDiscussion.value = active.discussion || "";
     hourStepDefault.value = editor.hourStepDefault;
     coneStepKm.value = editor.coneStepKm;
     coneSmooth.checked = active.coneSmooth !== false;
+
+    renderAdvisoryHistory(active);
+    renderKeyMessagesList(active);
 
     // Only rebuild the list (which would steal focus) when the point count
     // actually changed -- not on every keystroke while editing a value.
@@ -188,6 +198,56 @@ function refreshSystemsPanel() {
     systemEditor.classList.add("hidden");
     lastForecastSignature = "";
   }
+}
+
+function renderAdvisoryHistory(system) {
+  advisoryHistory.innerHTML = "";
+  if (!system.advisories.length) {
+    const p = document.createElement("p");
+    p.className = "empty-hint";
+    p.textContent = "No advisories posted yet.";
+    advisoryHistory.appendChild(p);
+    return;
+  }
+  [...system.advisories].reverse().forEach((a) => {
+    const row = document.createElement("div");
+    row.className = "advisory-row";
+    const date = new Date(a.issuedAt);
+    row.innerHTML = `<div class="advisory-row-head">Advisory #${a.number} &middot; ${date.toUTCString().replace("GMT", "UTC")}</div>
+      ${a.windSpeedKmh ? `<div class="advisory-row-wind">Max sustained winds: ${a.windSpeedKmh} km/h</div>` : ""}
+      <div class="advisory-row-text"></div>`;
+    row.querySelector(".advisory-row-text").textContent = a.text;
+    advisoryHistory.appendChild(row);
+  });
+}
+
+function renderKeyMessagesList(system) {
+  keyMessagesList.innerHTML = "";
+  if (!system.keyMessages.length) {
+    const p = document.createElement("p");
+    p.className = "empty-hint";
+    p.textContent = "No key messages yet.";
+    keyMessagesList.appendChild(p);
+    return;
+  }
+  system.keyMessages.forEach((msg, i) => {
+    const row = document.createElement("div");
+    row.className = "key-message-row";
+    const bullet = document.createElement("span");
+    bullet.className = "key-message-bullet";
+    bullet.textContent = "\u2022";
+    const text = document.createElement("span");
+    text.className = "key-message-text";
+    text.textContent = msg;
+    const removeBtn = document.createElement("button");
+    removeBtn.className = "btn btn-text key-message-remove";
+    removeBtn.textContent = "\u2715";
+    removeBtn.addEventListener("click", () => editor.removeKeyMessage(i));
+    row.appendChild(bullet);
+    row.appendChild(text);
+    row.appendChild(removeBtn);
+    keyMessagesList.appendChild(row);
+  });
 }
 
 function renderForecastPointsList(system) {
@@ -255,10 +315,19 @@ systemLabel.addEventListener("input", () => editor.updateActiveSystemField("labe
 systemClassification.addEventListener("change", () => {
   editor.updateActiveSystemField("classification", systemClassification.value);
 });
-systemDiscussion.addEventListener("input", () => editor.updateActiveSystemField("discussion", systemDiscussion.value));
+postAdvisoryBtn.addEventListener("click", () => {
+  editor.postAdvisory(newAdvisoryText.value, Number(newAdvisoryWind.value) || null);
+  newAdvisoryText.value = "";
+  newAdvisoryWind.value = "";
+});
 undoTrackPoint.addEventListener("click", () => editor.removeLastTrackPoint());
 hourStepDefault.addEventListener("input", () => editor.setHourStep(Number(hourStepDefault.value) || 24));
 coneStepKm.addEventListener("input", () => editor.setConeStepKm(Number(coneStepKm.value) || 60));
+removeLastWarningBtn.addEventListener("click", () => editor.removeLastWarning());
+addKeyMessageBtn.addEventListener("click", () => {
+  editor.addKeyMessage(newKeyMessageText.value);
+  newKeyMessageText.value = "";
+});
 coneSmooth.addEventListener("change", () => editor.updateActiveSystemField("coneSmooth", coneSmooth.checked));
 deleteSystemBtn.addEventListener("click", () => {
   editor.deleteActiveSystem();
@@ -470,5 +539,18 @@ exportPngBtn.addEventListener("click", async () => {
   } finally {
     exportPngBtn.disabled = false;
     exportPngBtn.textContent = originalText;
+  }
+});
+
+exportKeyMessagesBtn.addEventListener("click", async () => {
+  const active = editor.getActiveSystem();
+  if (!active) return;
+  exportKeyMessagesBtn.disabled = true;
+  try {
+    await exportKeyMessagesPNG(active, outlookTitleEl.textContent);
+  } catch (err) {
+    console.error("Key Messages export failed:", err);
+  } finally {
+    exportKeyMessagesBtn.disabled = false;
   }
 });
