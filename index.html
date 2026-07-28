@@ -112,8 +112,14 @@
         <option value="major-storm">Major storm</option>
         <option value="remnants">Remnants</option>
       </select>
-      <label class="field-label" for="systemDiscussion">Discussion</label>
-      <textarea id="systemDiscussion" rows="4" maxlength="1200" placeholder="Forecast reasoning for this system&hellip;"></textarea>
+
+      <p class="tool-group-label" style="margin-top:10px">Advisories (numbered, append-only)</p>
+      <div id="advisoryHistory" class="advisory-history"></div>
+      <label class="field-label" for="newAdvisoryText">New advisory text</label>
+      <textarea id="newAdvisoryText" rows="3" maxlength="1200" placeholder="Forecast reasoning, movement, expected impacts&hellip;"></textarea>
+      <label class="field-label" for="newAdvisoryWind">Max sustained winds (km/h, optional)</label>
+      <input id="newAdvisoryWind" type="number" min="0" step="5">
+      <button id="postAdvisoryBtn" class="btn btn-primary btn-block">Post advisory</button>
 
       <button class="tool-btn" data-tool="track" title="Click the map to add a past-position fix">
         <span class="swatch-dot" style="background:#2b2f33"></span><span>Add track point</span>
@@ -137,7 +143,23 @@
 
       <div id="forecastPointsList" class="forecast-points-list"></div>
 
-      <button id="deleteSystemBtn" class="btn btn-danger-outline btn-block">Delete system</button>
+      <p class="tool-group-label" style="margin-top:10px">Watches &amp; warnings (always visible)</p>
+      <button class="tool-btn" data-tool="warning" data-tier="warning">
+        <span class="swatch-dot" style="background:#e0080a"></span><span>Draw Storm Warning</span>
+      </button>
+      <button class="tool-btn" data-tool="warning" data-tier="watch">
+        <span class="swatch-dot" style="background:#ffa500"></span><span>Draw Storm Watch</span>
+      </button>
+      <button id="removeLastWarningBtn" class="btn btn-text btn-block">Remove last warning area</button>
+
+      <p class="tool-group-label" style="margin-top:10px">Key messages</p>
+      <div id="keyMessagesList" class="key-messages-list"></div>
+      <label class="field-label" for="newKeyMessageText">New bullet point</label>
+      <input id="newKeyMessageText" type="text" maxlength="140" placeholder="e.g. Damaging gusts likely along exposed coasts">
+      <button id="addKeyMessageBtn" class="btn btn-ghost btn-block">+ Add bullet</button>
+      <button id="exportKeyMessagesBtn" class="btn btn-primary btn-block">Export Key Messages graphic</button>
+
+      <button id="deleteSystemBtn" class="btn btn-danger-outline btn-block" style="margin-top:10px">Delete system</button>
     </div>
 
     <div class="tool-group">
@@ -201,6 +223,11 @@
     <span class="legend-item"><span class="swatch-dot" style="background:#f5f90b"></span>&lt; 40%</span>
     <span class="legend-item"><span class="swatch-dot" style="background:#ffa500"></span>40&ndash;60%</span>
     <span class="legend-item"><span class="swatch-dot" style="background:#e0080a"></span>&gt; 60%</span>
+  </div>
+  <div class="legend-group">
+    <span class="legend-title">Watches &amp; warnings</span>
+    <span class="legend-item"><span class="swatch-dot" style="background:#e0080a"></span>Storm Warning</span>
+    <span class="legend-item"><span class="swatch-dot" style="background:#ffa500"></span>Storm Watch</span>
   </div>
   <span class="legend-credit">Map data: Natural Earth</span>
 </footer>
