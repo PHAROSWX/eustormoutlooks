@@ -25,17 +25,26 @@ function fromFirestoreShapes(shapes = []) {
   }));
 }
 
-// Systems' track points are also [lon, lat] tuples -- same translation.
+// Systems' track points and warning-area points are also [lon, lat] tuples
+// -- same nested-array translation as shapes.points.
 function toFirestoreSystems(systems = []) {
   return systems.map((s) => ({
     ...s,
-    track: (s.track || []).map(([lon, lat]) => ({ lon, lat }))
+    track: (s.track || []).map(([lon, lat]) => ({ lon, lat })),
+    warnings: (s.warnings || []).map((w) => ({
+      ...w,
+      points: (w.points || []).map(([lon, lat]) => ({ lon, lat }))
+    }))
   }));
 }
 function fromFirestoreSystems(systems = []) {
   return systems.map((s) => ({
     ...s,
-    track: (s.track || []).map((p) => (Array.isArray(p) ? p : [p.lon, p.lat]))
+    track: (s.track || []).map((p) => (Array.isArray(p) ? p : [p.lon, p.lat])),
+    warnings: (s.warnings || []).map((w) => ({
+      ...w,
+      points: (w.points || []).map((p) => (Array.isArray(p) ? p : [p.lon, p.lat]))
+    }))
   }));
 }
 
