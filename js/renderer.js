@@ -1,4 +1,4 @@
-import { TIER_COLORS, ICONS, TRACK_COLOR, CONE_COLOR, SYSTEM_CLASSIFICATIONS } from "./theme.js";
+import { TIER_COLORS, ICONS, TRACK_COLOR, CONE_COLOR, SYSTEM_CLASSIFICATIONS, WARNING_TYPES } from "./theme.js";
 import { buildConePolygon } from "./cone.js";
 
 const L = window.L;
@@ -27,6 +27,16 @@ function buildDivIcon(marker) {
 function classificationLabel(value) {
   const found = SYSTEM_CLASSIFICATIONS.find((c) => c.value === value);
   return found ? found.label : "Unclassified";
+}
+
+function warningMeta(value) {
+  return WARNING_TYPES.find((w) => w.value === value) || WARNING_TYPES[0];
+}
+
+function formatIssuedShort(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return `${d.toUTCString().replace("GMT", "UTC")}`;
 }
 
 function systemHeaderColor(classification) {
@@ -84,17 +94,18 @@ export function renderOutlook(map, data, hooks = {}) {
     layer._gwoId = shape.id;
 
     const tierPct = shape.tier === "low" ? "< 40%" : shape.tier === "mid" ? "40\u201360%" : "> 60%";
-    layer.bindTooltip(`Potential windstorm &middot; ${tierPct}`, { sticky: true });
-    layer.bindPopup(popupHtml({
+    layer.bindTooltip(popupHtml({
       headerColor: color,
-      headerText: `Potential windstorm \u2014 formation chance ${tierPct} (click icon for details)`,
+      headerText: `Potential windstorm \u2014 formation chance ${tierPct}`,
       bodyLines: [shape.note ? escapeHtml(shape.note) : "No additional notes."]
-    }));
+    }), { sticky: true, direction: "top", opacity: 1, className: "gwo-tooltip-wrap" });
 
     layer.on("click", (e) => {
       if (isSelectTool) {
         L.DomEvent.stopPropagation(e);
-        if (hooks.onShapeClick) hooks.onShapeClick(shape.id);
+        setTimeout(() => {
+          if (hooks.onShapeClick) hooks.onShapeClick(shape.id);
+        }, 0);
       }
     });
     layer.addTo(map.shapesLayer);
@@ -110,7 +121,9 @@ export function renderOutlook(map, data, hooks = {}) {
     m.on("click", (e) => {
       if (isSelectTool) {
         L.DomEvent.stopPropagation(e);
-        if (hooks.onMarkerClick) hooks.onMarkerClick(marker.id);
+        setTimeout(() => {
+          if (hooks.onMarkerClick) hooks.onMarkerClick(marker.id);
+        }, 0);
       }
     });
     m.on("dragend", () => {
@@ -124,6 +137,23 @@ export function renderOutlook(map, data, hooks = {}) {
   (data.systems || []).forEach((system) => {
     const isExpanded = hooks.activeSystemId === system.id;
     const color = systemHeaderColor(system.classification);
+
+    // Watches & warnings are always visible -- these are the safety-critical
+    // product and shouldn't be hidden behind a click, unlike the cone/track.
+    (system.warnings || []).forEach((warning) => {
+      if (!warning.points || warning.points.length < 3) return;
+      const meta = warningMeta(warning.warningType);
+      const latlngs = warning.points.map((p) => map.toLatLng(p));
+      L.polygon(latlngs, {
+        renderer: map.renderer,
+        color: meta.color,
+        weight: 2,
+        fill: true,
+        fillColor: meta.color,
+        fillOpacity: 0.32
+      }).bindTooltip(`${meta.label} \u2014 ${system.label || "System"}`, { sticky: true })
+        .addTo(map.systemsLayer);
+    });
 
     if (isExpanded) {
       // Forecast cone -- only shown once a system is opened, to keep the
@@ -180,20 +210,33 @@ export function renderOutlook(map, data, hooks = {}) {
       })
     });
 
-    m.bindTooltip(`<b>${escapeHtml(system.label || "System")}</b><br>${classificationLabel(system.classification)} \u2014 click for details`,
-      { sticky: true });
-    m.bindPopup(popupHtml({
+    const latestAdvisory = (system.advisories && system.advisories.length)
+      ? system.advisories[system.advisories.length - 1]
+      : null;
+    const bodyLines = latestAdvisory
+      ? [
+          `<b>As of ${formatIssuedShort(latestAdvisory.issuedAt)} (Advisory #${latestAdvisory.number})</b>`,
+          latestAdvisory.windSpeedKmh ? `Max sustained winds: ${latestAdvisory.windSpeedKmh} km/h` : null,
+          escapeHtml(latestAdvisory.text)
+        ]
+      : ["No advisory posted yet."];
+
+    m.bindTooltip(popupHtml({
       headerColor: color,
-      headerText: `${system.label || "System"} (click icon on map to toggle cone)`,
-      bodyLines: [
-        `<b>${classificationLabel(system.classification)}</b>`,
-        system.discussion ? escapeHtml(system.discussion) : "No discussion posted yet."
-      ]
-    }));
+      headerText: `${system.label || "System"} \u2014 ${classificationLabel(system.classification)}`,
+      bodyLines
+    }), { sticky: true, direction: "top", opacity: 1, className: "gwo-tooltip-wrap" });
 
     m.on("click", (e) => {
       L.DomEvent.stopPropagation(e);
-      if (hooks.onSystemClick) hooks.onSystemClick(system.id);
+      // Defer: clicking a marker fires this handler mid-dispatch on that
+      // very marker. Rebuilding (clearLayers + recreate) synchronously here
+      // tears the marker down before Leaflet finishes handling the click,
+      // which made the toggle appear to silently do nothing. Deferring to
+      // the next tick lets the current click finish first.
+      setTimeout(() => {
+        if (hooks.onSystemClick) hooks.onSystemClick(system.id);
+      }, 0);
     });
     m.addTo(map.systemsLayer);
   });
