@@ -12,6 +12,10 @@ function angleFromVector(dx, dy) {
   return (Math.atan2(dx, -dy) * 180) / Math.PI;
 }
 
+function isDraftingTool(tool) {
+  return tool === "polygon" || tool === "warning";
+}
+
 const CLOSE_RADIUS_PX = 14;
 const DEFAULT_HOUR_STEP = 24;
 
@@ -49,7 +53,10 @@ export class OutlookEditor {
         coneSmooth: DEFAULT_CONE_SMOOTH,
         ...s,
         track: (s.track || []).map((p) => [...p]),
-        forecast: (s.forecast || []).map((p) => ({ ...p }))
+        forecast: (s.forecast || []).map((p) => ({ ...p })),
+        advisories: (s.advisories || []).map((a) => ({ ...a })),
+        keyMessages: (s.keyMessages || []).slice(),
+        warnings: (s.warnings || []).map((w) => ({ ...w, points: (w.points || []).map((p) => [...p]) }))
       })) : []
     };
     this.draft = null;
@@ -66,14 +73,17 @@ export class OutlookEditor {
       systems: this.data.systems.map((s) => ({
         ...s,
         track: (s.track || []).map((p) => [...p]),
-        forecast: (s.forecast || []).map((p) => ({ ...p }))
+        forecast: (s.forecast || []).map((p) => ({ ...p })),
+        advisories: (s.advisories || []).map((a) => ({ ...a })),
+        keyMessages: (s.keyMessages || []).slice(),
+        warnings: (s.warnings || []).map((w) => ({ ...w, points: (w.points || []).map((p) => [...p]) }))
       }))
     };
   }
 
   setTool(tool, value = null) {
-    const changingWhileDrafting = this.tool === "polygon" && (tool !== "polygon" || value !== this.value);
-    if (changingWhileDrafting) this._cancelDraft();
+    const wasDrafting = isDraftingTool(this.tool);
+    if (wasDrafting && (tool !== this.tool || value !== this.value)) this._cancelDraft();
     if (this.tool === "movement" && tool !== "movement") this._cancelArrowDraft();
     if (tool !== "select") this._deselect();
 
@@ -95,10 +105,12 @@ export class OutlookEditor {
       id: uid(),
       label: `System ${n}`,
       classification: "potential",
-      discussion: "",
       track: [],
       forecast: [],
-      coneSmooth: DEFAULT_CONE_SMOOTH
+      coneSmooth: DEFAULT_CONE_SMOOTH,
+      advisories: [],
+      keyMessages: [],
+      warnings: []
     };
     this.data.systems.push(system);
     this.activeSystemId = system.id;
@@ -157,6 +169,42 @@ export class OutlookEditor {
 
   setHourStep(hours) {
     this.hourStepDefault = hours;
+  }
+
+  // ------------------------------------------------------------- advisories (append-only)
+  postAdvisory(text, windSpeedKmh) {
+    const system = this.getActiveSystem();
+    if (!system || !text || !text.trim()) return;
+    system.advisories.push({
+      number: system.advisories.length + 1,
+      issuedAt: new Date().toISOString(),
+      text: text.trim(),
+      windSpeedKmh: windSpeedKmh || null
+    });
+    this._notifyChange();
+  }
+
+  // ------------------------------------------------------------- key messages
+  addKeyMessage(text) {
+    const system = this.getActiveSystem();
+    if (!system || !text || !text.trim()) return;
+    system.keyMessages.push(text.trim());
+    this._notifyChange();
+  }
+
+  removeKeyMessage(index) {
+    const system = this.getActiveSystem();
+    if (!system || !system.keyMessages[index]) return;
+    system.keyMessages.splice(index, 1);
+    this._notifyChange();
+  }
+
+  // ------------------------------------------------------------- watches & warnings
+  removeLastWarning() {
+    const system = this.getActiveSystem();
+    if (!system || !system.warnings.length) return;
+    system.warnings.pop();
+    this._notifyChange();
   }
 
   deleteSelected() {
@@ -225,7 +273,7 @@ export class OutlookEditor {
     const lat = e.latlng.lat;
     if (this.hooks.onCoord) this.hooks.onCoord(lon, lat);
 
-    if (this.tool === "polygon") {
+    if (this.tool === "polygon" || this.tool === "warning") {
       this._addDraftPoint(e, lon, lat);
     } else if (this.tool === "chance") {
       this._placeMarker({ kind: "chance", tier: this.value, lon, lat });
@@ -243,7 +291,7 @@ export class OutlookEditor {
   }
 
   _handleDblClick(e) {
-    if (this.tool === "polygon") {
+    if (this.tool === "polygon" || this.tool === "warning") {
       L.DomEvent.stopPropagation(e);
       this._finishDraft();
     }
@@ -285,7 +333,14 @@ export class OutlookEditor {
 
   _finishDraft() {
     if (this.draft && this.draft.length >= 3) {
-      this.data.shapes.push({ id: uid(), points: this.draft, note: "", tier: this.value || "high" });
+      if (this.tool === "warning") {
+        const system = this.getActiveSystem();
+        if (system) {
+          system.warnings.push({ id: uid(), points: this.draft, warningType: this.value || "warning" });
+        }
+      } else {
+        this.data.shapes.push({ id: uid(), points: this.draft, note: "", tier: this.value || "high" });
+      }
       this._notifyChange();
     }
     this._cancelDraft();
