@@ -40,6 +40,14 @@ export const CONE_COLOR = "#ffffff";
 export const DEFAULT_CONE_STEP_KM = 60;
 export const DEFAULT_CONE_SMOOTH = true;
 
+// Watches & warnings -- always visible on the map (unlike cone/track,
+// which are decluttered until a system is opened), since these are the
+// safety-critical product.
+export const WARNING_TYPES = [
+  { value: "warning", label: "Storm Warning", color: "#e0080a" },
+  { value: "watch", label: "Storm Watch", color: "#ffa500" }
+];
+
 // Rough North Atlantic + Europe area of interest, used to trim world
 // topology to just what's relevant (better performance, no far-flung
 // landmasses distorting the Mercator projection at the edges).
